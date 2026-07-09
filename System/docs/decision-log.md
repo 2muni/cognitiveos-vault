@@ -125,3 +125,18 @@ Result:
 - JSON-RPC `tools/call` with `search_notes` succeeds
 
 Codex CLI `codex mcp list` could not be verified in this environment because `codex.exe` fails with WindowsApps access denied. The current running Codex session also does not dynamically expose the newly configured MCP tools; a new session or app restart is expected to load the project MCP configuration.
+
+### Verification: Codex Tool Discovery Follow-up
+
+A new local Codex thread was created for MCP discovery verification.
+
+Result:
+
+- the new thread also did not expose `cognitiveos` MCP tools through dynamic tool discovery
+- the visible discovery surface showed `node_repl`, not the expected `search_notes`, `read_note`, `list_recent_notes`, `get_backlinks`, `get_related_notes`, or `build_context_pack`
+- local search through the implementation path still works
+- stdio JSON-RPC server verification remains the strongest confirmed signal that the server implementation is healthy
+
+Conclusion:
+
+The v0.1 MCP server is implemented and operational at the stdio protocol level, but Codex app/client registration is not yet confirmed. This should be treated as a client configuration/loading issue rather than a server implementation failure until proven otherwise.

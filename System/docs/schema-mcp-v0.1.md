@@ -9,6 +9,8 @@ It runs over stdio and exposes only the read-only tools listed below.
 
 If the Python `mcp` SDK is installed, the server uses FastMCP. Otherwise it falls back to a minimal JSON-RPC stdio implementation for the v0.1 tool surface.
 
+Codex documentation currently describes MCP server support for the CLI and IDE extension. Codex App tool discovery should not be treated as the primary verification path until App support for project MCP servers is explicitly confirmed.
+
 ## Resources
 
 ```text
@@ -134,3 +136,14 @@ enabled_tools = [
 ]
 default_tools_approval_mode = "prompt"
 ```
+
+## Verification Surface
+
+Use these verification levels in order:
+
+1. TOML parse check for `.codex/config.toml`.
+2. Local stdio JSON-RPC handshake against `scripts/run-cognitiveos-mcp.ps1`.
+3. `tools/list` and `tools/call` against the stdio server.
+4. Codex CLI or IDE extension `/mcp` discovery.
+
+Codex App discovery is currently informational only for this project because the official Codex MCP page documents CLI and IDE extension support.

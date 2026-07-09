@@ -140,3 +140,18 @@ Result:
 Conclusion:
 
 The v0.1 MCP server is implemented and operational at the stdio protocol level, but Codex app/client registration is not yet confirmed. This should be treated as a client configuration/loading issue rather than a server implementation failure until proven otherwise.
+
+### Decision: Treat CLI and IDE Extension as Primary MCP Clients
+
+Official Codex MCP documentation states that Codex supports MCP servers in the CLI and IDE extension. It also says MCP configuration is stored in `config.toml`, including project-scoped `.codex/config.toml` for trusted projects.
+
+Decision:
+
+- keep the project-scoped `.codex/config.toml` MCP server definition
+- treat CLI or IDE extension `/mcp` discovery as the primary client-level verification path
+- treat Codex App discovery as non-authoritative for this v0.1 MCP setup
+- continue using local stdio JSON-RPC tests as the implementation-level verification path
+
+Rationale:
+
+The server passed TOML parsing, stdio initialization, `tools/list`, and `tools/call`. The remaining gap is client-surface loading, and the official support statement points to CLI/IDE rather than App.

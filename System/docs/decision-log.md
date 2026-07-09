@@ -155,3 +155,19 @@ Decision:
 Rationale:
 
 The server passed TOML parsing, stdio initialization, `tools/list`, and `tools/call`. The remaining gap is client-surface loading, and the official support statement points to CLI/IDE rather than App.
+
+### Verification: Local CLI and IDE Client Availability
+
+Local client availability was checked for MCP discovery.
+
+Result:
+
+- VS Code CLI is installed and reports version `1.128.0`
+- no installed VS Code extension matching `codex` or `openai` was found
+- the only `codex` executable on PATH is the WindowsApps packaged app resource
+- direct execution of the WindowsApps `codex.exe` fails with `Access is denied`
+- `codex mcp list` cannot be used from this shell until an executable CLI path is available
+
+Conclusion:
+
+Client-level `/mcp` verification is blocked by local client availability, not by the CognitiveOS MCP server. The next verification path is either installing/enabling the Codex IDE extension in VS Code or installing a standalone Codex CLI that can run outside the WindowsApps package boundary.

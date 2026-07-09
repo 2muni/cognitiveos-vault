@@ -109,3 +109,19 @@ Rules:
 - use `default_tools_approval_mode = "prompt"`
 - keep writeback tools out of scope
 - support the Python MCP SDK when installed, with a dependency-free JSON-RPC stdio fallback for v0.1
+
+### Verification: MCP Server Runtime
+
+The project MCP server was verified at the stdio protocol level.
+
+Result:
+
+- `.codex/config.toml` parses successfully
+- `mcp_servers.cognitiveos.enabled` is `true`
+- enabled tools are `search_notes`, `read_note`, `list_recent_notes`, `get_backlinks`, `get_related_notes`, `build_context_pack`
+- `scripts/run-cognitiveos-mcp.ps1` starts the server using an executable Python candidate
+- JSON-RPC `initialize` succeeds
+- JSON-RPC `tools/list` returns the read-only tool set
+- JSON-RPC `tools/call` with `search_notes` succeeds
+
+Codex CLI `codex mcp list` could not be verified in this environment because `codex.exe` fails with WindowsApps access denied. The current running Codex session also does not dynamically expose the newly configured MCP tools; a new session or app restart is expected to load the project MCP configuration.

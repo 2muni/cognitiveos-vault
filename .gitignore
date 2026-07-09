@@ -1,0 +1,61 @@
+# Personal knowledge content
+00_Inbox/**
+01_Concepts/**
+02_Entities/**
+03_Projects/**
+04_References/**
+05_Journal/**
+06_Maps/**
+Assets/**
+
+# Keep private-content folder structure
+!00_Inbox/.gitkeep
+!01_Concepts/.gitkeep
+!02_Entities/.gitkeep
+!03_Projects/.gitkeep
+!04_References/.gitkeep
+!05_Journal/.gitkeep
+!06_Maps/.gitkeep
+!Assets/.gitkeep
+
+# Obsidian local state and private plugin/config data
+.obsidian/
+
+# Obsidian and sync trash
+.trash/
+
+# Legacy pre-v0.1 system artifacts kept locally but excluded from this repo baseline
+System/__SPECS__.md
+System/templates/*
+!System/templates/v0.1/
+!System/templates/v0.1/**
+
+# OS and sync noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.icloud
+*.tmp
+
+# Generated PKM/LLM artifacts
+.pkm-index/
+.mcp-cache/
+.embeddings/
+.vectorstore/
+.graphstore/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Runtime logs
+logs/
+*.log
+__pycache__/
+*.py[cod]
+
+# Secrets
+.env
+.env.*
+!.env.example

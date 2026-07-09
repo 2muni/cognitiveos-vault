@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cognitiveos"
+version = "0.1.0"
+description = "Read-only Obsidian PKM indexer and MCP interface"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.2"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+cognitiveos-index = "cognitiveos.cli:main_index"
+cognitiveos-search = "cognitiveos.cli:main_search"
+cognitiveos-mcp = "cognitiveos.mcp_server:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cognitiveos"]

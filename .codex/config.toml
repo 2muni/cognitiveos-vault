@@ -31,3 +31,20 @@ model_reasoning_effort = "xhigh"
 model_reasoning_summary = "detailed"
 model_verbosity = "medium"
 approval_policy = "on-request"
+
+[mcp_servers.cognitiveos]
+command = "powershell"
+args = ["-ExecutionPolicy", "Bypass", "-File", "scripts/run-cognitiveos-mcp.ps1"]
+cwd = "."
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+enabled = true
+enabled_tools = [
+  "search_notes",
+  "read_note",
+  "list_recent_notes",
+  "get_backlinks",
+  "get_related_notes",
+  "build_context_pack",
+]
+default_tools_approval_mode = "prompt"

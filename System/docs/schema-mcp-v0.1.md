@@ -4,6 +4,11 @@
 
 The v0.1 MCP surface is read-only. It lets Codex and other MCP clients inspect the vault, search notes, and build evidence packs without modifying Markdown files.
 
+The project MCP server is configured in `.codex/config.toml` as `mcp_servers.cognitiveos`.
+It runs over stdio and exposes only the read-only tools listed below.
+
+If the Python `mcp` SDK is installed, the server uses FastMCP. Otherwise it falls back to a minimal JSON-RPC stdio implementation for the v0.1 tool surface.
+
 ## Resources
 
 ```text
@@ -108,3 +113,24 @@ The following are intentionally excluded from v0.1:
 - `archive_note`
 
 They require a separate approval and safety design.
+
+## Codex Config
+
+```toml
+[mcp_servers.cognitiveos]
+command = "powershell"
+args = ["-ExecutionPolicy", "Bypass", "-File", "scripts/run-cognitiveos-mcp.ps1"]
+cwd = "."
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+enabled = true
+enabled_tools = [
+  "search_notes",
+  "read_note",
+  "list_recent_notes",
+  "get_backlinks",
+  "get_related_notes",
+  "build_context_pack",
+]
+default_tools_approval_mode = "prompt"
+```

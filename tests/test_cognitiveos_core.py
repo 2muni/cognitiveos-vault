@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from cognitiveos.indexer import VaultIndex
+from cognitiveos.mcp_server import handle_message
 from cognitiveos.parser import parse_markdown_file
 from cognitiveos.retrieval import RetrievalService
 from cognitiveos.safety import safe_resolve_inside
@@ -218,6 +219,54 @@ class SchemaFixtureTests(CognitiveOSTestCase):
 
         self.assertIn("path:", pack.context)
         self.assertTrue(any(result.path == "projects/read-only-mcp.md" for result in pack.results))
+
+
+class BasicMCPProtocolTests(CognitiveOSTestCase):
+    def test_basic_mcp_initialize_list_and_call(self) -> None:
+        self.write_note(
+            "concept.md",
+            """---
+id: mcp_concept
+type: concept
+title: MCP Concept
+status: active
+---
+# MCP Concept
+
+Read-only MCP tools expose Markdown search.
+""",
+        )
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        init_response = handle_message(
+            service,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25"},
+            },
+        )
+        self.assertEqual(init_response["result"]["serverInfo"]["name"], "cognitiveos")
+        self.assertIn("tools", init_response["result"]["capabilities"])
+
+        list_response = handle_message(service, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        tool_names = {tool["name"] for tool in list_response["result"]["tools"]}
+        self.assertIn("search_notes", tool_names)
+        self.assertIn("build_context_pack", tool_names)
+
+        call_response = handle_message(
+            service,
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "search_notes", "arguments": {"query": "Markdown"}},
+            },
+        )
+        self.assertFalse(call_response["result"]["isError"])
+        self.assertIn("mcp_concept", call_response["result"]["content"][0]["text"])
 
 
 if __name__ == "__main__":

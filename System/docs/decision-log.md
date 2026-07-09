@@ -97,3 +97,15 @@ Rules:
 - no Obsidian plugin-specific syntax is required
 - templates cover all initial note types: `inbox`, `concept`, `source`, `entity`, `project`, `map`, `journal`, `system`, `output`
 - automated note creation and migration remain out of scope
+
+### Decision: Configure Read-only Codex MCP Server
+
+The project-scoped `.codex/config.toml` includes `mcp_servers.cognitiveos`.
+
+Rules:
+
+- run as a stdio MCP server through `scripts/run-cognitiveos-mcp.ps1`
+- expose only read-only tools
+- use `default_tools_approval_mode = "prompt"`
+- keep writeback tools out of scope
+- support the Python MCP SDK when installed, with a dependency-free JSON-RPC stdio fallback for v0.1

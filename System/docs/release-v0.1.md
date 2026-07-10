@@ -116,6 +116,71 @@ Pre-release identifiers may be used for experimental work:
 0.2.0-beta.1
 ```
 
+## Version Bump Procedure
+
+Version changes must be explicit and should be committed before tagging.
+
+Files to check:
+
+- `pyproject.toml`
+- `README.md`
+- `System/docs/roadmap-v0.1.md`
+- `System/docs/release-v0.1.md`
+- `System/docs/decision-log.md`
+
+Patch bump example:
+
+```text
+0.1.0 -> 0.1.1
+```
+
+Use for:
+
+- bug fixes
+- typo or documentation corrections
+- test-only improvements
+- deterministic ranking tweaks that do not change contracts
+- MCP error message improvements that do not change schemas
+
+Minor bump example:
+
+```text
+0.1.0 -> 0.2.0
+```
+
+Use for:
+
+- new read-only MCP tool
+- new retrieval output field
+- optional embedding index design or implementation
+- new CLI mode
+- new MCP resource URI support
+
+Major bump example:
+
+```text
+0.1.0 -> 1.0.0
+```
+
+Use for:
+
+- writeback tools enabled by default
+- incompatible note schema changes
+- destructive migrations
+- permission boundary changes that can affect user-authored Markdown
+- default behavior changes that can modify source files
+
+Required bump checklist:
+
+- [ ] decide bump class: patch, minor, or major
+- [ ] update `pyproject.toml`
+- [ ] update release notes or release document
+- [ ] update README if user-facing behavior changed
+- [ ] update roadmap if scope changed
+- [ ] run tests
+- [ ] commit version bump
+- [ ] create annotated tag after verification
+
 ## Tag Policy
 
 Release tags use annotated Git tags.
@@ -147,6 +212,75 @@ Push tag:
 ```
 
 Do not move a published tag unless the user explicitly approves a repair operation.
+
+## Hotfix Policy
+
+A hotfix is a minimal patch release made after a stable tag when the current release has a defect that should be corrected without waiting for the next planned minor version.
+
+Hotfix version:
+
+```text
+v0.1.0 -> v0.1.1
+```
+
+Hotfix branch format:
+
+```text
+codex/hotfix-v0.1.1-short-description
+```
+
+For this personal vault repository, direct hotfix commits to `main` are acceptable only when:
+
+- the user explicitly asks to proceed directly on `main`
+- the fix is narrow
+- no private note content is staged
+- tests pass
+
+Hotfix allowed changes:
+
+- critical bug fix
+- broken test fix
+- incorrect release/documentation instruction
+- MCP error handling fix
+- path safety fix
+- packaging or launch script fix
+
+Hotfix disallowed changes:
+
+- new features
+- new writeback capability
+- schema migrations
+- broad refactors
+- unrelated documentation rewrites
+- private note changes
+
+Hotfix process:
+
+1. Confirm the target base tag or current release branch.
+2. Create a narrow hotfix branch when not working directly on `main`.
+3. Make the smallest safe change.
+4. Add or update tests when behavior changes.
+5. Run unit tests.
+6. Run relevant smoke tests.
+7. Bump patch version.
+8. Commit with a clear message.
+9. Merge or fast-forward to `main`.
+10. Create annotated patch tag.
+11. Push branch/main and tag.
+
+Hotfix tag example:
+
+```powershell
+& 'C:\Program Files\Git\cmd\git.exe' tag -a v0.1.1 -m "CognitiveOS hotfix v0.1.1"
+& 'C:\Program Files\Git\cmd\git.exe' push origin v0.1.1
+```
+
+Hotfix verification:
+
+- unit tests pass
+- relevant smoke test passes
+- `git status --short --branch` is clean before tagging
+- `git tag --list vX.Y.Z` confirms the tag does not already exist
 
 ## Branch Policy
 

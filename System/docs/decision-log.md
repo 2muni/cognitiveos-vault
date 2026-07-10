@@ -329,3 +329,20 @@ Decision:
 Rationale:
 
 The read-only MVP is stable enough to define a release boundary. Explicit version and tag rules reduce ambiguity before creating the first release tag.
+
+### Decision: Hotfix and Version Bump Policy
+
+The release policy now includes explicit hotfix and version bump procedures.
+
+Decision:
+
+- use patch bumps for hotfixes, for example `0.1.0 -> 0.1.1`
+- use `codex/hotfix-vX.Y.Z-short-description` branch names for hotfix branches
+- allow direct hotfix commits to `main` only when the user explicitly drives that flow and the change is narrow
+- disallow new features, writeback capability, migrations, broad refactors, and private note changes in hotfixes
+- require tests and relevant smoke checks before tagging a hotfix
+- require version bump commits before creating release tags
+
+Rationale:
+
+Hotfix rules keep emergency changes small and auditable. Version bump rules prevent tags from being created without matching project metadata.

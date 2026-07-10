@@ -160,6 +160,8 @@ The v0.1 release checklist, version policy, and tag policy are maintained in:
 System/docs/release-v0.1.md
 ```
 
+It also defines the hotfix flow and version bump procedure.
+
 Current package version:
 
 ```text

@@ -405,3 +405,28 @@ Task scale:
 - `Sol / ultra`: high-impact migrations and authorization boundaries
 
 Every completed task should report the next recommended task and tier.
+
+## 2026-07-11
+
+### Decision: Read-only Retrieval v0.2
+
+The v0.2 implementation adds deterministic context budgeting without changing
+the Markdown source-of-truth or read-only permission boundary.
+
+Decision:
+
+- set the package version to `0.2.0`
+- return `context_version = context-pack-v0.3`
+- accept a `token_budget` of `512–32768`, defaulting to `4000`
+- use the dependency-free `local-heuristic-v1` estimator
+- prefer note-type diversity, then fill sources by search rank
+- allocate source identity first and optional evidence round-robin
+- expose explicit `text|json` CLI formats
+- keep the MCP surface at nine read-only tools
+- defer embeddings, writeback, other-device verification, and client UI discovery
+
+Verification:
+
+- 22 automated tests cover token estimation, budget enforcement, deterministic
+  source selection, MCP validation, and CLI formats
+- actual vault verification must preserve user Markdown checksums

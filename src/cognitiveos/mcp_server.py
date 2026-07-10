@@ -104,10 +104,16 @@ def main() -> None:
         return service.propose_moc(query, normalize_limit(limit, default=10, maximum=50))
 
     @mcp.tool()
-    def build_context_pack(query: str, limit: int = 5) -> dict[str, Any]:
+    def build_context_pack(query: str, limit: int = 5, token_budget: int = 4000) -> dict[str, Any]:
         """Build a compact evidence pack for a query."""
         query = require_text("query", query)
-        return context_pack_to_dict(service.build_context_pack(query, normalize_limit(limit, default=5, maximum=20)))
+        return context_pack_to_dict(
+            service.build_context_pack(
+                query,
+                normalize_limit(limit, default=5, maximum=20),
+                normalize_token_budget(token_budget),
+            )
+        )
 
     mcp.run()
 
@@ -147,7 +153,7 @@ def handle_message(service: RetrievalService, message: dict[str, Any]) -> dict[s
                 "serverInfo": {
                     "name": "cognitiveos",
                     "title": "CognitiveOS Read-only PKM",
-                    "version": "0.1.0",
+                    "version": "0.2.0",
                     "description": "Read-only search and retrieval tools for a local Obsidian Markdown vault.",
                 },
                 "instructions": "Read-only vault tools. This server never writes to source Markdown files.",
@@ -218,6 +224,7 @@ def call_tool(
                 service.build_context_pack(
                     query=require_text("query", arguments.get("query")),
                     limit=normalize_limit(arguments.get("limit"), default=5, maximum=20),
+                    token_budget=normalize_token_budget(arguments.get("token_budget")),
                 )
             )
         else:
@@ -359,6 +366,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "properties": {
                     "query": {"type": "string"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                    "token_budget": {"type": "integer", "minimum": 512, "maximum": 32768},
                 },
                 "required": ["query"],
                 "additionalProperties": False,
@@ -395,6 +403,16 @@ def normalize_limit(value: Any, default: int, maximum: int) -> int:
     if limit < 1:
         raise ToolInputError("invalid_argument", "limit must be at least 1")
     return min(limit, maximum)
+
+
+def normalize_token_budget(value: Any) -> int:
+    if value is None:
+        return 4000
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ToolInputError("invalid_argument", "token_budget must be an integer")
+    if not 512 <= value <= 32768:
+        raise ToolInputError("invalid_argument", "token_budget must be between 512 and 32768")
+    return value
 
 
 def normalize_note_reference(note_id: Any = None, path: Any = None) -> tuple[str | None, str | None]:

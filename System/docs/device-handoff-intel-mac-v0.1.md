@@ -153,16 +153,16 @@ The indexed note count can differ between devices because private Markdown is sy
 
 ## Current Roadmap
 
-The next development phase is v0.2 read-only retrieval improvement.
+The v0.2 read-only retrieval implementation is complete on the current Intel
+Mac. Verification on another device and interactive client UI discovery are
+deferred until the user resumes them.
 
 Recommended order:
 
-1. Complete the Intel Mac client-level MCP discovery check.
-2. Add token budget estimation to `build_context_pack`.
-3. Add explicit structured JSON output options to CLI commands.
-4. Improve context pack source selection and evidence budgeting.
-5. Design optional embeddings without making them a source of truth.
-6. Revisit writeback only after the read-only v0.2 boundary is stable.
+1. Design optional embeddings without making them a source of truth.
+2. Keep SQLite/FTS and metadata retrieval as the default fallback.
+3. Define rebuild and corruption behavior for the derived embedding index.
+4. Revisit writeback only after the read-only v0.2 boundary is stable.
 
 Do not enable writeback, migrations, renames, or deletion as part of environment restoration.
 

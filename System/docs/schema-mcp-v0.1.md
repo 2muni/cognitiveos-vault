@@ -158,21 +158,33 @@ Input:
 ```json
 {
   "query": "string",
-  "limit": 5
+  "limit": 5,
+  "token_budget": 4000
 }
 ```
+
+`token_budget` defaults to `4000` and must be an integer from `512` through
+`32768`.
 
 Output: structured evidence bundle for LLM/Codex context construction.
 
 Returned fields:
 
-- `context_version`: currently `context-pack-v0.2`
+- `context_version`: currently `context-pack-v0.3`
 - `context`: compact text block for prompt insertion
 - `results`: raw search results
 - `sources`: ranked source objects with summary, key points, evidence, score, and stats
 - `key_points`: deduplicated key points across selected sources
 - `evidence_paths`: vault-relative source paths used in the pack
 - `stats`: source count, evidence path count, key point count, and source word count
+- `budget`: requested, estimated, and remaining tokens plus truncation state and estimator identity
+
+The `local-heuristic-v1` estimator counts ASCII text at four characters per
+token, rounded up, and non-ASCII text at one token per character. Context source
+selection prefers the highest-ranked note of each available note type, then
+fills remaining positions by search rank. Source identity and excerpts are
+allocated before key points and evidence; optional evidence is added round-robin
+without exceeding the requested context budget.
 
 ## Deferred Write Tools
 

@@ -2,9 +2,11 @@
 
 ## Current Status
 
-Status checked on 2026-07-10.
+Status checked on 2026-07-11.
 
-The v0.1 read-only MVP is implemented, tested, documented, and connected to a project-scoped Codex MCP configuration.
+The v0.1 read-only MVP remains the published stable baseline. The v0.2 read-only
+retrieval implementation is complete on `main`; another-device and interactive
+client discovery checks are deferred.
 
 Summary:
 
@@ -18,6 +20,8 @@ Summary:
 | MCP tool validation | Complete |
 | Structured summaries | Complete |
 | Structured context packs | Complete |
+| Context token budget and evidence allocation | Complete |
+| Explicit text/JSON CLI formats | Complete |
 | Search reranking | Complete |
 | VS Code Codex extension setup | Complete locally |
 | Writeback implementation | Deferred |
@@ -27,7 +31,8 @@ Summary:
 | Local LLM calls | Deferred |
 | Release checklist and tag policy | Complete |
 | Public GitHub Release `v0.1.0` | Complete |
-| Intel Mac handoff environment | Complete in repository; device verification pending |
+| Current Intel Mac environment | Complete |
+| Other-device and client UI verification | Deferred by user |
 
 ## Phase 0: Schema and Docs
 
@@ -141,7 +146,7 @@ Implemented in:
 
 ## Phase 4: Retrieval and Context Packs
 
-Status: Complete for v0.1.
+Status: Complete for v0.2.
 
 Delivered:
 
@@ -168,13 +173,19 @@ Delivered:
   - `evidence`
   - `stats`
 - structured context pack:
-  - `context_version = context-pack-v0.2`
+  - `context_version = context-pack-v0.3`
   - `context`
   - `results`
   - `sources`
   - `key_points`
   - `evidence_paths`
   - `stats`
+  - `budget`
+- deterministic `local-heuristic-v1` token estimation
+- `512–32768` token budget with `4000` default
+- note-type-diverse source selection
+- round-robin key point and evidence allocation
+- explicit `text|json` CLI formats
 
 Implemented in:
 
@@ -214,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `16` unit tests
+- `22` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -225,8 +236,7 @@ Current automated verification:
 
 Current smoke verification:
 
-- actual vault indexing succeeds
-- latest observed count: `36` Markdown notes after adding the Intel Mac handoff documents
+- actual vault indexing succeeds; note count is device-dependent and is not a fixed pass criterion
 - stdio MCP server responds to `initialize`
 - stdio MCP server responds to `tools/list`
 - stdio MCP server returns tool-level error for invalid calls
@@ -241,27 +251,25 @@ Current smoke verification:
 - No writeback tools are enabled.
 - Search ranking is deterministic and local but still heuristic.
 - Source summary is extractive, not abstractive.
-- Context pack has no token budget estimator yet.
 - Codex UI-level MCP discovery still requires user-side VS Code/Codex sign-in and visual confirmation.
 
 ## Next Recommended Phase
 
-Phase 6: Intel Mac handoff and v0.2 read-only retrieval preparation.
+Phase 7: optional semantic retrieval design.
 
-Status: In progress.
+Status: Planned. Implementation is not part of v0.2.
 
 Recommended tasks:
 
-- complete Intel Mac bootstrap and client-level MCP discovery
-- add token budget estimates to `build_context_pack`
-- add explicit structured JSON output options to CLI commands
-- improve context pack source selection and evidence budgeting
 - design optional embeddings without changing Markdown source-of-truth rules
+- keep SQLite/FTS and metadata retrieval as the default path
+- define fallback behavior for missing or corrupt derived embedding indexes
+- revisit writeback only after the read-only retrieval boundary remains stable
 
 Release policy:
 
 - `System/docs/release-v0.1.md`
-- current package version: `0.1.0`
+- current package version: `0.2.0`
 - first stable tag and public GitHub Release: `v0.1.0`
 
 Recommended model:

@@ -80,24 +80,27 @@ Current verification snapshot:
 
 | Check | Result |
 | --- | --- |
-| Unit tests | Pass, `16` tests |
-| Actual vault index | Pass, `34` Markdown notes |
+| Unit tests | Pass, `22` tests |
+| Actual vault index | Pass; note count is device-dependent |
 | MCP `initialize` | Pass, server name `cognitiveos` |
 | MCP `tools/list` | Pass, `9` tools |
 | Invalid MCP call | Pass, `isError = true`, `invalid_argument` |
 
 Current verification command:
 
-```powershell
-& "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -m unittest discover -s tests -v
+```bash
+./.venv/bin/python -m unittest discover -s tests -v
 ```
 
 Expected:
 
 ```text
-Ran 16 tests
+Ran 22 tests
 OK
 ```
+
+Current development package version: `0.2.0`. The published `v0.1.0` tag and
+its historical release identity remain unchanged.
 
 ## Version Policy
 
@@ -327,7 +330,6 @@ Completed for `v0.1.0`:
 
 - Search ranking is deterministic but heuristic.
 - Summaries are extractive, not abstractive.
-- Context packs do not yet estimate token budget.
 - No vector embeddings.
 - No graph database.
 - No local LLM runtime integration.
@@ -350,9 +352,9 @@ Patch release candidates:
 
 Minor release candidates:
 
-- token budget estimator for `build_context_pack`
-- JSON output mode for CLI search
-- richer context pack source selection
+- completed on `main`: token-budgeted `build_context_pack`
+- completed on `main`: explicit text/JSON CLI output
+- completed on `main`: note-type-diverse context source selection
 - optional embedding index design
 - MCP resource URI support
 

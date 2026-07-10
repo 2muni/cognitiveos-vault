@@ -2,7 +2,7 @@
 
 CognitiveOS is a Markdown-first, local-first, MCP-addressable PKM system for an Obsidian vault.
 
-The current implementation is a read-only v0.1 MVP:
+The current implementation is a read-only v0.2 retrieval release:
 
 - scans Markdown notes
 - parses frontmatter, headings, wikilinks, and Markdown links
@@ -22,6 +22,8 @@ Implemented:
 - MCP argument validation
 - structured source summaries
 - structured context packs
+- deterministic token budgets and evidence allocation
+- explicit text/JSON CLI output formats
 - writeback permission design
 
 Deferred:
@@ -64,7 +66,7 @@ Read-only tools:
 - `propose_moc`
 - `build_context_pack`
 
-No MCP tool writes to Markdown in v0.1.
+No MCP tool writes to Markdown in v0.2.
 
 ## Intel Mac Quick Start
 
@@ -99,14 +101,14 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 18 tests
+Ran 22 tests
 OK
 ```
 
 ## Build the Local Index
 
 ```bash
-PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_index; main_index()"
+PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_index; main_index()" --format text
 ```
 
 The generated database is stored under:
@@ -120,8 +122,11 @@ This index is derived and can be rebuilt from Markdown.
 ## Search Example
 
 ```bash
-PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_search; main_search()" "CognitiveOS MCP PKM"
+PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_search; main_search()" "CognitiveOS MCP PKM" --format json
 ```
+
+Both commands accept `--format text|json`. Indexing defaults to `text`; search
+defaults to `json` for backward compatibility.
 
 ## MCP Server
 
@@ -153,7 +158,7 @@ Open the vault root in VS Code and confirm the Codex extension loads the `cognit
 
 ## Writeback Policy
 
-Writeback is not implemented in v0.1.
+Writeback is not implemented in v0.2.
 
 The future writeback design is documented in:
 
@@ -194,10 +199,16 @@ The v0.1.0 release notes are maintained in:
 System/docs/release-notes-v0.1.0.md
 ```
 
+The v0.2.0 release notes are maintained in:
+
+```text
+System/docs/release-notes-v0.2.0.md
+```
+
 Current package version:
 
 ```text
-0.1.0
+0.2.0
 ```
 
 Published stable release:

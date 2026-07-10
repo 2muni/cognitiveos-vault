@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 from contextlib import closing
@@ -213,26 +214,41 @@ class RetrievalService:
             "writeback": False,
         }
 
-    def build_context_pack(self, query: str, limit: int = 5) -> ContextPack:
+    def build_context_pack(self, query: str, limit: int = 5, token_budget: int = 4000) -> ContextPack:
         limit = max(1, min(limit, 20))
-        results = self.search_notes(query, limit=limit)
-        blocks = []
+        token_budget = validate_token_budget(token_budget)
+        candidate_limit = min(max(limit * 4, 20), 50)
+        candidates = self.search_notes(query, limit=candidate_limit)
+        selected_results = select_diverse_results(candidates, limit)
+        included_results: list[SearchResult] = []
+        source_lines: list[list[str]] = []
         sources: list[dict[str, Any]] = []
         key_points: list[str] = []
         evidence_paths: list[str] = []
         total_word_count = 0
-        for index, result in enumerate(results, start=1):
+        truncated = False
+
+        for result in selected_results:
+            rank = len(included_results) + 1
+            base_lines = [
+                f"[{rank}] {result.title}",
+                f"path: {result.path}",
+                f"type: {result.note_type}",
+                f"excerpt: {result.matched_excerpt}",
+            ]
+            proposed_lines = [*source_lines, base_lines]
+            if estimate_tokens(render_context(proposed_lines)) > token_budget:
+                truncated = True
+                continue
             summary = self.summarize_source(note_id=result.note_id)
-            source_key_points = summary.get("key_points", [])[:3]
             total_word_count += int(summary.get("stats", {}).get("word_count") or 0)
+            included_results.append(result)
+            source_lines.append(base_lines)
             if result.path not in evidence_paths:
                 evidence_paths.append(result.path)
-            for point in source_key_points:
-                if point not in key_points:
-                    key_points.append(point)
             sources.append(
                 {
-                    "rank": index,
+                    "rank": rank,
                     "note_id": result.note_id,
                     "path": result.path,
                     "title": result.title,
@@ -240,31 +256,73 @@ class RetrievalService:
                     "score": result.score,
                     "matched_excerpt": result.matched_excerpt,
                     "summary": summary.get("summary", ""),
-                    "key_points": source_key_points,
-                    "evidence": summary.get("evidence", [])[:3],
+                    "key_points": [],
+                    "evidence": [],
                     "stats": summary.get("stats", {}),
+                    "_pending_key_points": summary.get("key_points", [])[:3],
+                    "_pending_evidence": summary.get("evidence", [])[:3],
                 }
             )
-            blocks.append(
-                f"[{index}] {result.title}\n"
-                f"path: {result.path}\n"
-                f"type: {result.note_type}\n"
-                f"excerpt: {result.matched_excerpt}\n"
-                f"key_points: {'; '.join(source_key_points)}"
-            )
+
+        pending_items: list[list[tuple[str, str]]] = []
+        for source in sources:
+            items: list[tuple[str, str]] = []
+            source_key_points = source.pop("_pending_key_points")
+            source_evidence = source.pop("_pending_evidence")
+            for index in range(max(len(source_key_points), len(source_evidence))):
+                if index < len(source_key_points):
+                    items.append(("key_point", source_key_points[index]))
+                if index < len(source_evidence):
+                    items.append(("evidence", source_evidence[index]))
+            pending_items.append(items)
+
+        while any(pending_items):
+            made_progress = False
+            for source_index, items in enumerate(pending_items):
+                if not items:
+                    continue
+                kind, value = items.pop(0)
+                line = f"{kind}: {strip_markdown(value)}"
+                source_lines[source_index].append(line)
+                if estimate_tokens(render_context(source_lines)) > token_budget:
+                    source_lines[source_index].pop()
+                    truncated = True
+                    continue
+                made_progress = True
+                if kind == "key_point":
+                    sources[source_index]["key_points"].append(value)
+                    if value not in key_points:
+                        key_points.append(value)
+                else:
+                    sources[source_index]["evidence"].append(value)
+            if not made_progress and any(pending_items):
+                truncated = True
+
+        context = render_context(source_lines)
+        estimated_tokens = estimate_tokens(context)
         return ContextPack(
             query=query,
-            results=results,
-            context="\n\n".join(blocks),
-            context_version="context-pack-v0.2",
+            results=included_results,
+            context=context,
+            context_version="context-pack-v0.3",
             sources=sources,
             key_points=key_points[:12],
             evidence_paths=evidence_paths,
             stats={
                 "source_count": len(sources),
+                "candidate_count": len(candidates),
+                "selected_source_count": len(selected_results),
+                "omitted_source_count": len(selected_results) - len(sources),
                 "evidence_path_count": len(evidence_paths),
                 "key_point_count": len(key_points[:12]),
                 "source_word_count": total_word_count,
+            },
+            budget={
+                "requested_tokens": token_budget,
+                "estimated_tokens": estimated_tokens,
+                "remaining_tokens": token_budget - estimated_tokens,
+                "truncated": truncated,
+                "estimator": "local-heuristic-v1",
             },
         )
 
@@ -354,7 +412,48 @@ def context_pack_to_dict(pack: ContextPack) -> dict[str, Any]:
         "key_points": pack.key_points,
         "evidence_paths": pack.evidence_paths,
         "stats": pack.stats,
+        "budget": pack.budget,
     }
+
+
+def validate_token_budget(token_budget: Any) -> int:
+    if isinstance(token_budget, bool) or not isinstance(token_budget, int):
+        raise ValueError("token_budget must be an integer")
+    if not 512 <= token_budget <= 32768:
+        raise ValueError("token_budget must be between 512 and 32768")
+    return token_budget
+
+
+def estimate_tokens(text: str) -> int:
+    ascii_characters = sum(1 for character in text if character.isascii())
+    non_ascii_characters = len(text) - ascii_characters
+    return math.ceil(ascii_characters / 4) + non_ascii_characters
+
+
+def select_diverse_results(results: list[SearchResult], limit: int) -> list[SearchResult]:
+    selected: list[SearchResult] = []
+    selected_ids: set[str] = set()
+    selected_types: set[str] = set()
+    for result in results:
+        if result.note_type in selected_types:
+            continue
+        selected.append(result)
+        selected_ids.add(result.note_id)
+        selected_types.add(result.note_type)
+        if len(selected) >= limit:
+            return selected
+    for result in results:
+        if result.note_id in selected_ids:
+            continue
+        selected.append(result)
+        selected_ids.add(result.note_id)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def render_context(source_lines: list[list[str]]) -> str:
+    return "\n\n".join("\n".join(lines) for lines in source_lines)
 
 
 def build_note_filters(

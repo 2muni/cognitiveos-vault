@@ -2,17 +2,17 @@
 
 This repository is an Obsidian vault and the Markdown files are the source of truth. Treat generated indices, embeddings, graph projections, summaries, and MCP caches as derived artifacts.
 
-## Default Codex Profile
+## Codex Model Selection
 
-Use the local Codex defaults in `.codex/config.toml`:
+Select the GPT-5.6 model tier in the Codex client for each task. The project config intentionally does not pin a model so that the selected client tier carries across devices.
 
-- Model: `gpt-5.5`
-- Reasoning effort: `medium`
-- Reasoning summary: `concise`
-- Verbosity: `medium`
-- Approval policy: `on-request`
+- `Terra / light`: UI checks, status checks, small documentation edits, and routine Git operations
+- `Sol / light`: narrow implementation, focused tests, and small bug fixes
+- `Sol / medium`: normal feature work, environment migration, retrieval changes, and release stabilization
+- `Sol / high`: architecture, schema evolution, writeback design, and security review
+- `Sol / ultra`: high-impact migrations, authorization boundary changes, destructive-operation design, and incident analysis
 
-Use higher reasoning only for architecture, migration, writeback, security, or MCP permission-boundary work.
+At the end of every completed task, report the next recommended task and its recommended tier.
 
 ## Vault Safety
 
@@ -62,9 +62,8 @@ Prefer hybrid retrieval:
 
 Avoid presenting model inference as vault fact unless it is grounded in retrieved notes.
 
-## Recommended Reasoning Levels
+## Device Portability
 
-- Architecture and schema design: `high`
-- MVP implementation and tests: `medium`
-- Small templates or documentation edits: `low`
-- Vault writeback, migrations, authorization, and security review: `high` or `xhigh`
+- Prefer platform-neutral Python commands in documentation and tests.
+- Use `scripts/run-cognitiveos-mcp.sh` on macOS and `scripts/run-cognitiveos-mcp.ps1` on Windows.
+- Keep private note synchronization separate from Git repository synchronization.

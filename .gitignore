@@ -42,6 +42,7 @@ desktop.ini
 
 # Generated PKM/LLM artifacts
 .pkm-index/
+.venv/
 .mcp-cache/
 .embeddings/
 .vectorstore/

@@ -22,7 +22,7 @@ Git tag:
 v0.1.0
 ```
 
-Release date target:
+Release date:
 
 ```text
 2026-07-10
@@ -308,19 +308,20 @@ For this personal vault repository, direct commits to `main` are acceptable whil
 
 ## Release Checklist
 
-Before creating `v0.1.0`:
+Completed for `v0.1.0`:
 
-- [ ] Confirm `main` is clean and aligned with `origin/main`
-- [ ] Confirm `pyproject.toml` version is `0.1.0`
-- [ ] Run unit tests
-- [ ] Rebuild actual vault index
-- [ ] Run MCP stdio handshake smoke test
-- [ ] Run MCP invalid argument smoke test
-- [ ] Review README
-- [ ] Review roadmap
-- [ ] Confirm writeback tools are not enabled
-- [ ] Create annotated tag `v0.1.0`
-- [ ] Push tag to origin
+- [x] Confirm `main` is clean and aligned with `origin/main`
+- [x] Confirm `pyproject.toml` version is `0.1.0`
+- [x] Run unit tests
+- [x] Rebuild actual vault index
+- [x] Run MCP stdio handshake smoke test
+- [x] Run MCP invalid argument smoke test
+- [x] Review README
+- [x] Review roadmap
+- [x] Confirm writeback tools are not enabled
+- [x] Create annotated tag `v0.1.0`
+- [x] Push tag to origin
+- [x] Publish the GitHub Release
 
 ## Known Limitations
 
@@ -366,4 +367,4 @@ Potential writeback preview release:
 
 ## Decision
 
-`v0.1.0` should be the first stable tag for the current read-only MVP after the release checklist passes on `main`.
+`v0.1.0` is the published stable tag and GitHub Release for the current read-only MVP. The published tag must not be moved.

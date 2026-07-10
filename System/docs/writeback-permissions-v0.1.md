@@ -145,12 +145,9 @@ enabled_tools = [
   "propose_moc",
   "build_context_pack",
 ]
-
-[profiles.writeback_review]
-model = "gpt-5.5"
-model_reasoning_effort = "high"
-approval_policy = "on-request"
 ```
+
+Select `Sol / high` for ordinary writeback review and `Sol / ultra` for high-impact migration or authorization-boundary work. Keep approval policy `on-request` or stricter.
 
 ## Non-goals for v0.1
 
@@ -164,4 +161,3 @@ approval_policy = "on-request"
 ## Decision
 
 The v0.1 implementation remains read-only. Writeback is designed as a future two-phase proposal/apply system with explicit approval, checksum verification, vault-root path enforcement, and auditable derived logs.
-

@@ -36,7 +36,10 @@ Deferred:
 
 ```text
 .codex/config.toml                  Codex project config and MCP server registration
+scripts/run-cognitiveos-mcp.sh       macOS MCP server launcher
 scripts/run-cognitiveos-mcp.ps1      Windows MCP server launcher
+scripts/bootstrap-macos.sh           Intel Mac environment bootstrap
+scripts/verify_environment.py        Cross-device verification
 src/cognitiveos/                    Python implementation
 tests/                              Unit and fixture tests
 System/docs/                        Architecture, schemas, decisions, roadmap
@@ -62,12 +65,29 @@ Read-only tools:
 
 No MCP tool writes to Markdown in v0.1.
 
+## Intel Mac Quick Start
+
+After cloning the repository or opening the synchronized vault worktree:
+
+```bash
+chmod +x scripts/bootstrap-macos.sh scripts/run-cognitiveos-mcp.sh
+./scripts/bootstrap-macos.sh
+```
+
+The canonical migration and continuation guide is:
+
+```text
+System/docs/device-handoff-intel-mac-v0.1.md
+```
+
+Private note folders and assets are not transferred by Git. Restore them through iCloud Drive, Obsidian Sync, or a separate encrypted transfer before rebuilding the index.
+
 ## Run Tests
 
 From the vault root:
 
-```powershell
-& "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -m unittest discover -s tests -v
+```bash
+python3 -m unittest discover -s tests -v
 ```
 
 Expected current result:
@@ -79,8 +99,8 @@ OK
 
 ## Build the Local Index
 
-```powershell
-& "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -c "import sys; sys.path.insert(0, 'src'); from cognitiveos.indexer import VaultIndex, default_index_path; db=default_index_path('.'); index=VaultIndex(db); count=index.index_vault('.'); index.close(); print(f'Indexed {count} notes into {db}')"
+```bash
+PYTHONPATH=src python3 -c "from cognitiveos.cli import main_index; main_index()"
 ```
 
 The generated database is stored under:
@@ -93,8 +113,8 @@ This index is derived and can be rebuilt from Markdown.
 
 ## Search Example
 
-```powershell
-& "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -c "import sys,json; sys.path.insert(0,'src'); from cognitiveos.retrieval import RetrievalService; s=RetrievalService('.'); print(json.dumps([r.__dict__ for r in s.search_notes('CognitiveOS MCP PKM', limit=5)], ensure_ascii=False, indent=2))"
+```bash
+PYTHONPATH=src python3 -c "from cognitiveos.cli import main_search; main_search()" "CognitiveOS MCP PKM"
 ```
 
 ## MCP Server
@@ -103,16 +123,16 @@ The project MCP server is registered in `.codex/config.toml`:
 
 ```toml
 [mcp_servers.cognitiveos]
-command = "powershell"
-args = ["-ExecutionPolicy", "Bypass", "-File", "scripts/run-cognitiveos-mcp.ps1"]
+command = "/bin/bash"
+args = ["scripts/run-cognitiveos-mcp.sh"]
 cwd = "."
 enabled = true
 ```
 
 The launcher finds a usable Python executable, sets `PYTHONPATH=src`, and runs:
 
-```powershell
-python -m cognitiveos.mcp_server --vault-root <vault-root>
+```bash
+./scripts/run-cognitiveos-mcp.sh
 ```
 
 ## VS Code / Codex
@@ -174,7 +194,7 @@ Current package version:
 0.1.0
 ```
 
-First stable tag target:
+Published stable release:
 
 ```text
 v0.1.0

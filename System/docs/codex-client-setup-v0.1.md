@@ -4,6 +4,8 @@
 
 This document records the local client state required to attach the CognitiveOS read-only MCP server to Codex.
 
+The Windows details below are the original environment record. The active continuation target is now an Intel Mac; use `System/docs/device-handoff-intel-mac-v0.1.md` as the primary setup guide.
+
 ## Current Environment
 
 Checked on 2026-07-10.
@@ -26,12 +28,12 @@ Result:
 
 The project already contains a project-scoped Codex configuration at `.codex/config.toml`.
 
-The configured MCP server is:
+The current macOS-targeted MCP server configuration is:
 
 ```toml
 [mcp_servers.cognitiveos]
-command = "powershell"
-args = ["-ExecutionPolicy", "Bypass", "-File", "scripts/run-cognitiveos-mcp.ps1"]
+command = "/bin/bash"
+args = ["scripts/run-cognitiveos-mcp.sh"]
 cwd = "."
 startup_timeout_sec = 20
 tool_timeout_sec = 60
@@ -50,10 +52,13 @@ enabled_tools = [
 default_tools_approval_mode = "prompt"
 ```
 
-The MCP server script and Python server entrypoint are present:
+The platform launchers and Python server entrypoint are present:
 
+- `scripts/run-cognitiveos-mcp.sh`
 - `scripts/run-cognitiveos-mcp.ps1`
 - `src/cognitiveos/mcp_server.py`
+
+On macOS, run `scripts/bootstrap-macos.sh` first. On Windows, the PowerShell launcher remains available for direct use even though the tracked Codex MCP registration now targets macOS.
 
 ## Official Setup Path
 
@@ -139,15 +144,15 @@ Completed on 2026-07-10:
 - The MCP server responds to `tools/list`.
 - The advertised tools are read-only.
 
-Remaining manual verification:
+Remaining manual verification on the Intel Mac:
 
-- Open VS Code after extension installation.
-- Sign in to Codex if prompted.
-- Open the Codex sidebar.
-- Confirm the extension loads the project-scoped `.codex/config.toml`.
-- Confirm the `cognitiveos` MCP server appears in the Codex UI.
-- Run a read-only call from the Codex UI, preferably `list_recent_notes` or `search_notes`.
+- run `scripts/bootstrap-macos.sh`
+- sign in to Codex if prompted
+- open and trust the vault root
+- confirm the project-scoped `.codex/config.toml` loads
+- confirm the `cognitiveos` MCP server appears with nine read-only tools
+- run `list_recent_notes` and `search_notes` from the Codex UI
 
 ## Decision
 
-Client-level MCP verification is no longer blocked by extension installation. The remaining step is interactive VS Code/Codex sign-in and UI-level MCP discovery.
+Implementation-level MCP verification is complete. Client-level verification must now be repeated on the Intel Mac after bootstrap and interactive Codex sign-in.

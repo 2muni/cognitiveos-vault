@@ -362,3 +362,46 @@ Decision:
 Rationale:
 
 Release notes should be reproducible from the repository itself, not only from GitHub UI text.
+
+### Verification: Public v0.1.0 GitHub Release
+
+The user confirmed that the `v0.1.0` GitHub Release was published on 2026-07-10.
+
+Decision:
+
+- treat `v0.1.0` as the published stable read-only MVP
+- keep the existing annotated tag at commit `578882d`
+- do not move the published tag
+- keep the later release-notes commit on `main`
+
+### Decision: Intel Mac Continuation Environment
+
+Future work will continue on an Intel Mac.
+
+Decision:
+
+- add a POSIX MCP launcher for macOS
+- keep the existing PowerShell launcher for Windows recovery
+- add an Intel Mac bootstrap and cross-device verification script
+- target the tracked project MCP configuration at macOS
+- keep private note synchronization separate from Git
+- use `System/docs/device-handoff-intel-mac-v0.1.md` as the canonical continuation guide
+- keep writeback disabled during device migration
+
+Rationale:
+
+The code and governance documents are version-controlled, while personal notes and assets are intentionally ignored. Reproducing the complete working system therefore requires both Git synchronization and a separate private-vault synchronization channel.
+
+### Decision: GPT-5.6 Terra/Sol Task Scale
+
+The project no longer pins a model identifier in `.codex/config.toml`. The user selects the available GPT-5.6 tier in the Codex client.
+
+Task scale:
+
+- `Terra / light`: UI, status, small docs, routine Git
+- `Sol / light`: narrow implementation and focused fixes
+- `Sol / medium`: normal features, environment work, and retrieval changes
+- `Sol / high`: architecture, schema, writeback, and security review
+- `Sol / ultra`: high-impact migrations and authorization boundaries
+
+Every completed task should report the next recommended task and tier.

@@ -162,6 +162,10 @@ Local-first systems need durable Markdown.
 
         context_pack = service.build_context_pack("durable", limit=2)
         self.assertIn("path:", context_pack.context)
+        self.assertEqual(context_pack.context_version, "context-pack-v0.2")
+        self.assertGreaterEqual(len(context_pack.sources), 1)
+        self.assertGreaterEqual(len(context_pack.evidence_paths), 1)
+        self.assertGreaterEqual(context_pack.stats["source_count"], 1)
 
     def test_read_only_generation_helpers(self) -> None:
         self.write_note(
@@ -276,7 +280,11 @@ class SchemaFixtureTests(CognitiveOSTestCase):
         pack = service.build_context_pack("read-only MCP Markdown", limit=3)
 
         self.assertIn("path:", pack.context)
+        self.assertEqual(pack.context_version, "context-pack-v0.2")
+        self.assertGreaterEqual(len(pack.sources), 1)
+        self.assertGreaterEqual(len(pack.key_points), 1)
         self.assertTrue(any(result.path == "projects/read-only-mcp.md" for result in pack.results))
+        self.assertIn("projects/read-only-mcp.md", pack.evidence_paths)
 
 
 class BasicMCPProtocolTests(CognitiveOSTestCase):

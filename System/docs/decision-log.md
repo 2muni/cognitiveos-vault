@@ -221,3 +221,21 @@ Decision:
 Rationale:
 
 Structured output is easier for Codex and future agents to consume than a single summary string. The v0.2 structure improves downstream context packing while preserving deterministic, auditable behavior.
+
+### Decision: Structured Context Pack v0.2
+
+`build_context_pack` was upgraded from a compact excerpt list to a structured evidence bundle.
+
+Decision:
+
+- keep the tool read-only
+- return `context_version = context-pack-v0.2`
+- preserve the compact `context` string for prompt insertion
+- add ranked `sources` with summaries, key points, evidence, scores, and stats
+- add deduplicated `key_points`
+- add `evidence_paths`
+- add pack-level `stats`
+
+Rationale:
+
+Future local LLM and Codex workflows need more than raw excerpts. A structured context pack gives the model prompt-ready text while also preserving source paths and evidence for auditability.

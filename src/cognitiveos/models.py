@@ -66,3 +66,8 @@ class ContextPack:
     query: str
     results: list[SearchResult]
     context: str
+    context_version: str = "context-pack-v0.1"
+    sources: list[dict[str, Any]] = field(default_factory=list)
+    key_points: list[str] = field(default_factory=list)
+    evidence_paths: list[str] = field(default_factory=list)
+    stats: dict[str, Any] = field(default_factory=dict)

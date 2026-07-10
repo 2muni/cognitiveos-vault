@@ -152,7 +152,17 @@ Input:
 }
 ```
 
-Output: compact evidence bundle for LLM context construction.
+Output: structured evidence bundle for LLM/Codex context construction.
+
+Returned fields:
+
+- `context_version`: currently `context-pack-v0.2`
+- `context`: compact text block for prompt insertion
+- `results`: raw search results
+- `sources`: ranked source objects with summary, key points, evidence, score, and stats
+- `key_points`: deduplicated key points across selected sources
+- `evidence_paths`: vault-relative source paths used in the pack
+- `stats`: source count, evidence path count, key point count, and source word count
 
 ## Deferred Write Tools
 

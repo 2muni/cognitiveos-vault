@@ -211,16 +211,59 @@ class RetrievalService:
         }
 
     def build_context_pack(self, query: str, limit: int = 5) -> ContextPack:
+        limit = max(1, min(limit, 20))
         results = self.search_notes(query, limit=limit)
         blocks = []
+        sources: list[dict[str, Any]] = []
+        key_points: list[str] = []
+        evidence_paths: list[str] = []
+        total_word_count = 0
         for index, result in enumerate(results, start=1):
+            summary = self.summarize_source(note_id=result.note_id)
+            source_key_points = summary.get("key_points", [])[:3]
+            total_word_count += int(summary.get("stats", {}).get("word_count") or 0)
+            if result.path not in evidence_paths:
+                evidence_paths.append(result.path)
+            for point in source_key_points:
+                if point not in key_points:
+                    key_points.append(point)
+            sources.append(
+                {
+                    "rank": index,
+                    "note_id": result.note_id,
+                    "path": result.path,
+                    "title": result.title,
+                    "type": result.note_type,
+                    "score": result.score,
+                    "matched_excerpt": result.matched_excerpt,
+                    "summary": summary.get("summary", ""),
+                    "key_points": source_key_points,
+                    "evidence": summary.get("evidence", [])[:3],
+                    "stats": summary.get("stats", {}),
+                }
+            )
             blocks.append(
                 f"[{index}] {result.title}\n"
                 f"path: {result.path}\n"
                 f"type: {result.note_type}\n"
-                f"excerpt: {result.matched_excerpt}"
+                f"excerpt: {result.matched_excerpt}\n"
+                f"key_points: {'; '.join(source_key_points)}"
             )
-        return ContextPack(query=query, results=results, context="\n\n".join(blocks))
+        return ContextPack(
+            query=query,
+            results=results,
+            context="\n\n".join(blocks),
+            context_version="context-pack-v0.2",
+            sources=sources,
+            key_points=key_points[:12],
+            evidence_paths=evidence_paths,
+            stats={
+                "source_count": len(sources),
+                "evidence_path_count": len(evidence_paths),
+                "key_point_count": len(key_points[:12]),
+                "source_word_count": total_word_count,
+            },
+        )
 
     def _search_fts(
         self,
@@ -291,8 +334,13 @@ class RetrievalService:
 def context_pack_to_dict(pack: ContextPack) -> dict[str, Any]:
     return {
         "query": pack.query,
+        "context_version": pack.context_version,
         "context": pack.context,
         "results": [result.__dict__ for result in pack.results],
+        "sources": pack.sources,
+        "key_points": pack.key_points,
+        "evidence_paths": pack.evidence_paths,
+        "stats": pack.stats,
     }
 
 

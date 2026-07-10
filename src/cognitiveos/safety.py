@@ -3,7 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 
-SKIPPED_DIRS = {".git", ".obsidian", ".trash", ".pkm-index", "__pycache__"}
+SKIPPED_DIRS = {
+    ".git",
+    ".obsidian",
+    ".trash",
+    ".pkm-index",
+    ".pytest_cache",
+    ".venv",
+    "__pycache__",
+}
 
 
 def resolve_vault_root(vault_root: str | Path) -> Path:

@@ -164,6 +164,8 @@ class VaultIndex:
         self.create_schema()
         started = now_iso()
         with self.conn:
+            self.conn.execute("DELETE FROM notes")
+            self.conn.execute("DELETE FROM fts_notes")
             cursor = self.conn.execute(
                 "INSERT INTO index_runs (started_at, status) VALUES (?, ?)",
                 (started, "running"),

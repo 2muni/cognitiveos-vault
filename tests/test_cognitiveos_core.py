@@ -106,6 +106,28 @@ class SafetyTests(CognitiveOSTestCase):
 
 
 class IndexTests(CognitiveOSTestCase):
+    def test_skips_local_runtime_directories(self) -> None:
+        self.write_note("note.md", "# Durable note")
+        self.write_note(".venv/lib/package/LICENSE.md", "# Package license")
+        self.write_note(".pytest_cache/README.md", "# Pytest cache")
+
+        self.assertEqual(self.index(), 1)
+
+    def test_rebuild_removes_notes_no_longer_in_vault(self) -> None:
+        self.write_note("keep.md", "# Keep")
+        removed = self.write_note("remove.md", "# Remove")
+        self.assertEqual(self.index(), 2)
+
+        removed.unlink()
+        self.assertEqual(self.index(), 1)
+
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            note_paths = conn.execute("SELECT path FROM notes").fetchall()
+            fts_paths = conn.execute("SELECT path FROM fts_notes").fetchall()
+
+        self.assertEqual(note_paths, [("keep.md",)])
+        self.assertEqual(fts_paths, [("keep.md",)])
+
     def test_indexes_notes_links_headings_and_fts_without_duplicates(self) -> None:
         self.write_note(
             "concept.md",

@@ -36,6 +36,7 @@ Deferred:
 
 ```text
 .codex/config.toml                  Codex project config and MCP server registration
+.python-version                     Preferred Python runtime for uv/pyenv (3.14.6)
 scripts/run-cognitiveos-mcp.sh       macOS MCP server launcher
 scripts/run-cognitiveos-mcp.ps1      Windows MCP server launcher
 scripts/bootstrap-macos.sh           Intel Mac environment bootstrap
@@ -67,6 +68,11 @@ No MCP tool writes to Markdown in v0.1.
 
 ## Intel Mac Quick Start
 
+CognitiveOS requires Python 3.11 or newer. This repository pins Python 3.14.6
+for version managers such as `uv` and `pyenv`; the MCP launcher uses the local
+`.venv` when it exists, so it does not depend on the system `python3` being the
+preferred version.
+
 After cloning the repository or opening the synchronized vault worktree:
 
 ```bash
@@ -87,20 +93,20 @@ Private note folders and assets are not transferred by Git. Restore them through
 From the vault root:
 
 ```bash
-python3 -m unittest discover -s tests -v
+./.venv/bin/python -m unittest discover -s tests -v
 ```
 
 Expected current result:
 
 ```text
-Ran 16 tests
+Ran 18 tests
 OK
 ```
 
 ## Build the Local Index
 
 ```bash
-PYTHONPATH=src python3 -c "from cognitiveos.cli import main_index; main_index()"
+PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_index; main_index()"
 ```
 
 The generated database is stored under:
@@ -114,7 +120,7 @@ This index is derived and can be rebuilt from Markdown.
 ## Search Example
 
 ```bash
-PYTHONPATH=src python3 -c "from cognitiveos.cli import main_search; main_search()" "CognitiveOS MCP PKM"
+PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_search; main_search()" "CognitiveOS MCP PKM"
 ```
 
 ## MCP Server

@@ -296,3 +296,18 @@ Decision:
 Rationale:
 
 Markdown files are durable records. Writeback must be auditable, approval-gated, and vault-root constrained before any MCP write tools are enabled.
+
+### Decision: Reconcile Roadmap With Implementation
+
+The roadmap was updated from an initial phase list into an implementation status document.
+
+Decision:
+
+- mark schema/docs, ingestion, index, read-only MCP, retrieval, structured summaries, structured context packs, search reranking, MCP validation, and writeback design as complete for v0.1
+- keep writeback implementation, vector search, graph DB, and local LLM calls deferred
+- document current test count, smoke verification, and known limitations
+- expand `README.md` into a practical v0.1 usage guide
+
+Rationale:
+
+The implemented system has moved beyond the original roadmap outline. A release-facing status document makes the current boundary clearer and prevents deferred features from being confused with implemented capabilities.

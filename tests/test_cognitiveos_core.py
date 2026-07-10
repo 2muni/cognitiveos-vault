@@ -176,6 +176,8 @@ title: Alpha Source
 Durable Markdown systems connect concepts through local-first retrieval.
 
 This source explains evidence-first context packs.
+
+- What should the next retrieval step validate?
 """,
         )
         self.write_note(
@@ -199,8 +201,14 @@ Durable Markdown systems need retrieval and context packs.
 
         summary = service.summarize_source(note_id="alpha")
         self.assertEqual(summary["note_id"], "alpha")
+        self.assertEqual(summary["summary_version"], "extractive-v0.2")
         self.assertIn("Durable Markdown", summary["summary"])
+        self.assertIn("key_points", summary)
+        self.assertIn("open_questions", summary)
+        self.assertIn("stats", summary)
         self.assertGreaterEqual(len(summary["evidence"]), 1)
+        self.assertGreaterEqual(summary["stats"]["word_count"], 1)
+        self.assertTrue(any(question.endswith("?") for question in summary["open_questions"]))
 
         moc = service.propose_moc("Durable Markdown retrieval", limit=5)
         self.assertFalse(moc["writeback"])

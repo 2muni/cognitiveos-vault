@@ -159,9 +159,12 @@ class RetrievalService:
     def summarize_source(self, note_id: str | None = None, path: str | None = None) -> dict[str, Any]:
         note = self.read_note(note_id=note_id, path=path)
         body = note["body"].strip()
-        paragraphs = [paragraph.strip() for paragraph in re.split(r"\n\s*\n", body) if paragraph.strip()]
-        evidence = paragraphs[:3]
-        summary = " ".join(strip_markdown(paragraph) for paragraph in evidence)
+        blocks = content_blocks(body)
+        evidence = select_evidence_blocks(blocks, max_blocks=5)
+        key_points = key_points_from_blocks(evidence, max_points=5)
+        open_questions = questions_from_blocks(blocks, max_questions=5)
+        summary_parts = [note["title"], *key_points[:3]]
+        summary = " ".join(part for part in summary_parts if part)
         if len(summary) > 800:
             summary = summary[:797].rstrip() + "..."
         return {
@@ -169,9 +172,18 @@ class RetrievalService:
             "path": note["path"],
             "title": note["title"],
             "type": note["type"],
+            "summary_version": "extractive-v0.2",
             "summary": summary,
+            "key_points": key_points,
+            "open_questions": open_questions,
             "headings": note["headings"][:10],
             "evidence": evidence,
+            "stats": {
+                "heading_count": len(note["headings"]),
+                "link_count": len(note["links"]),
+                "evidence_count": len(evidence),
+                "word_count": len(search_terms(strip_markdown(body))),
+            },
         }
 
     def propose_moc(self, query: str, limit: int = 10) -> dict[str, Any]:
@@ -334,6 +346,90 @@ def strip_markdown(text: str) -> str:
     text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", text)
     text = re.sub(r"[*_`>#-]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def content_blocks(body: str) -> list[str]:
+    blocks: list[str] = []
+    current: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            if current:
+                blocks.append(" ".join(current).strip())
+                current = []
+            continue
+        if stripped.startswith("#"):
+            if current:
+                blocks.append(" ".join(current).strip())
+                current = []
+            blocks.append(stripped)
+            continue
+        if stripped.startswith(("- ", "* ", "+ ")):
+            if current:
+                blocks.append(" ".join(current).strip())
+                current = []
+            blocks.append(stripped)
+            continue
+        current.append(stripped)
+    if current:
+        blocks.append(" ".join(current).strip())
+    return [block for block in blocks if strip_markdown(block)]
+
+
+def select_evidence_blocks(blocks: list[str], max_blocks: int = 5) -> list[str]:
+    scored: list[tuple[int, int, str]] = []
+    total = max(1, len(blocks))
+    for index, block in enumerate(blocks):
+        plain = strip_markdown(block)
+        if not plain:
+            continue
+        score = 0
+        if block.lstrip().startswith("#"):
+            score += 4
+        if block.lstrip().startswith(("- ", "* ", "+ ")):
+            score += 3
+        if 40 <= len(plain) <= 400:
+            score += 2
+        if any(marker in plain.lower() for marker in ("decision", "rationale", "result", "because", "therefore")):
+            score += 2
+        if index >= total // 2:
+            score += 1
+        scored.append((-score, index, block))
+    scored.sort()
+    selected = sorted(scored[:max_blocks], key=lambda item: item[1])
+    return [block for _score, _index, block in selected]
+
+
+def key_points_from_blocks(blocks: list[str], max_points: int = 5) -> list[str]:
+    points: list[str] = []
+    for block in blocks:
+        plain = strip_markdown(block)
+        if not plain:
+            continue
+        if plain.endswith("?"):
+            continue
+        if len(plain) > 220:
+            plain = plain[:217].rstrip() + "..."
+        if plain not in points:
+            points.append(plain)
+        if len(points) >= max_points:
+            break
+    return points
+
+
+def questions_from_blocks(blocks: list[str], max_questions: int = 5) -> list[str]:
+    questions: list[str] = []
+    for block in blocks:
+        plain = strip_markdown(block)
+        if "?" not in plain:
+            continue
+        for part in re.split(r"(?<=[?])\s+", plain):
+            part = part.strip()
+            if part.endswith("?") and part not in questions:
+                questions.append(part)
+            if len(questions) >= max_questions:
+                return questions
+    return questions
 
 
 def keyword_set(text: str) -> set[str]:

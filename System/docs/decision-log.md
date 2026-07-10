@@ -205,3 +205,19 @@ Decision:
 - keep path-inferred runtime note types for known operational folders
 - keep `suggest_links` keyword-overlap reranking as the v0.1 heuristic
 - keep `propose_moc` grouped by note type with `writeback = false`
+
+### Decision: Structured Extractive Source Summary v0.2
+
+`summarize_source` was upgraded from a plain paragraph concatenation to a deterministic structured summary.
+
+Decision:
+
+- keep the tool read-only
+- do not call an LLM in v0.1
+- return `summary_version = extractive-v0.2`
+- return `summary`, `key_points`, `open_questions`, `headings`, `evidence`, and `stats`
+- keep evidence blocks grounded in source Markdown
+
+Rationale:
+
+Structured output is easier for Codex and future agents to consume than a single summary string. The v0.2 structure improves downstream context packing while preserving deterministic, auditable behavior.

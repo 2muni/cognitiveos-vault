@@ -114,7 +114,19 @@ Input:
 }
 ```
 
-Output: extractive summary, headings, and evidence paragraphs for one note. This is grounded in the note body and does not call an LLM in v0.1.
+Output: deterministic extractive summary for one note.
+
+Returned fields:
+
+- `summary_version`: currently `extractive-v0.2`
+- `summary`: compact text assembled from the title and selected key points
+- `key_points`: selected heading, paragraph, or list-item statements
+- `open_questions`: question-like lines extracted from the note
+- `headings`: parsed Markdown headings
+- `evidence`: source Markdown blocks used for the summary
+- `stats`: heading, link, evidence, and word counts
+
+This is grounded in the note body and does not call an LLM in v0.1.
 
 ### `propose_moc`
 

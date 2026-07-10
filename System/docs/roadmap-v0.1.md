@@ -25,6 +25,7 @@ Summary:
 | Vector search | Deferred |
 | Graph database | Deferred |
 | Local LLM calls | Deferred |
+| Release checklist and tag policy | Complete |
 
 ## Phase 0: Schema and Docs
 
@@ -223,7 +224,7 @@ Current automated verification:
 Current smoke verification:
 
 - actual vault indexing succeeds
-- latest observed count: `33` Markdown notes
+- latest observed count: `34` Markdown notes
 - stdio MCP server responds to `initialize`
 - stdio MCP server responds to `tools/list`
 - stdio MCP server returns tool-level error for invalid calls
@@ -245,14 +246,22 @@ Current smoke verification:
 
 Phase 6: v0.1 release stabilization.
 
+Status: In progress.
+
 Recommended tasks:
 
-- keep README aligned with implemented commands and MCP tools
-- add explicit CLI examples
-- add a small release checklist
+- keep README aligned with implemented commands and MCP tools: complete
+- add explicit CLI examples: complete
+- add release checklist and tag policy: complete
 - add token budget estimates to `build_context_pack`
 - add optional structured JSON output mode to CLI search
 - run one VS Code Codex UI-level MCP discovery check
+
+Release policy:
+
+- `System/docs/release-v0.1.md`
+- current package version: `0.1.0`
+- first stable tag target: `v0.1.0`
 
 Recommended model:
 

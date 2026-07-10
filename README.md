@@ -152,3 +152,22 @@ The implementation-vs-roadmap status is maintained in:
 System/docs/roadmap-v0.1.md
 ```
 
+## Release Policy
+
+The v0.1 release checklist, version policy, and tag policy are maintained in:
+
+```text
+System/docs/release-v0.1.md
+```
+
+Current package version:
+
+```text
+0.1.0
+```
+
+First stable tag target:
+
+```text
+v0.1.0
+```

@@ -311,3 +311,21 @@ Decision:
 Rationale:
 
 The implemented system has moved beyond the original roadmap outline. A release-facing status document makes the current boundary clearer and prevents deferred features from being confused with implemented capabilities.
+
+### Decision: Release and Version Policy v0.1
+
+The project now has an explicit release checklist, version policy, and tag policy.
+
+Decision:
+
+- keep package version as `0.1.0`
+- use `v0.1.0` as the first stable release tag target
+- use annotated Git tags for releases
+- do not move published tags without explicit user approval
+- use SemVer-like versioning for implementation releases
+- treat writeback enablement or incompatible schema changes as major-version events
+- keep release criteria in `System/docs/release-v0.1.md`
+
+Rationale:
+
+The read-only MVP is stable enough to define a release boundary. Explicit version and tag rules reduce ambiguity before creating the first release tag.

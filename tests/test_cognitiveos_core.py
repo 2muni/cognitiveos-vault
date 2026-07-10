@@ -79,6 +79,12 @@ See [[Source Note|source]] and [example](https://example.com).
 
         self.assertEqual(note.note_type, "system")
 
+    def test_root_operational_docs_infer_system_type(self) -> None:
+        path = self.write_note("AGENTS.md", "# Agent Guide\n\nRules.")
+        note = parse_markdown_file(path, self.root)
+
+        self.assertEqual(note.note_type, "system")
+
     def test_broken_yaml_does_not_fail_parsing(self) -> None:
         path = self.write_note("broken.md", "---\ntitle: [broken\n---\n# Body")
         note = parse_markdown_file(path, self.root)
@@ -231,6 +237,54 @@ Durable Markdown systems need retrieval and context packs.
         self.assertEqual([result.note_id for result in results], ["src"])
         with self.assertRaises(KeyError):
             service.read_note(note_id="missing")
+
+    def test_search_reranks_title_and_heading_matches(self) -> None:
+        self.write_note(
+            "source.md",
+            """---
+id: source_body
+type: source
+title: Long Source
+status: active
+---
+# Notes
+
+Retrieval ranking appears many times. Retrieval ranking should be searchable.
+""",
+        )
+        self.write_note(
+            "concept.md",
+            """---
+id: concept_retrieval
+type: concept
+title: Retrieval Ranking
+status: evergreen
+---
+# Retrieval Ranking
+
+Short canonical concept.
+""",
+        )
+        self.write_note(
+            "project.md",
+            """---
+id: project_heading
+type: project
+title: Search Work
+status: active
+---
+# Retrieval Ranking
+
+Project heading match.
+""",
+        )
+        self.index()
+
+        service = RetrievalService(self.root, self.db_path)
+        results = service.search_notes("Retrieval Ranking", limit=3)
+
+        self.assertEqual(results[0].note_id, "concept_retrieval")
+        self.assertGreater(results[0].score, results[1].score)
 
 
 class SchemaFixtureTests(CognitiveOSTestCase):

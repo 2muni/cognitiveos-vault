@@ -65,6 +65,8 @@ Folder location is not the only source of meaning, but the indexer may use it as
 
 | Path prefix | Inferred type |
 | --- | --- |
+| `AGENTS.md` | `system` |
+| `README.md` | `system` |
 | `System/` | `system` |
 | `00_Inbox/` | `inbox` |
 | `01_Concepts/` | `concept` |

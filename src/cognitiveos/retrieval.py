@@ -33,22 +33,25 @@ class RetrievalService:
     ) -> list[SearchResult]:
         self.ensure_index()
         limit = max(1, min(limit, 50))
+        candidate_limit = min(max(limit * 4, 25), 200)
         with closing(sqlite3.connect(self.db_path)) as conn:
             conn.row_factory = sqlite3.Row
-            rows = self._search_fts(conn, query, note_type, limit, status, domain, tag)
+            rows = self._search_fts(conn, query, note_type, candidate_limit, status, domain, tag)
             if not rows:
-                rows = self._search_like(conn, query, note_type, limit, status, domain, tag)
-            return [
+                rows = self._search_like(conn, query, note_type, candidate_limit, status, domain, tag)
+            results = [
                 SearchResult(
                     note_id=row["note_id"],
                     path=row["path"],
                     title=row["title"],
                     note_type=row["type"],
-                    score=float(row["score"]),
+                    score=search_relevance_score(query, row),
                     matched_excerpt=row["matched_excerpt"] or "",
                 )
                 for row in rows
             ]
+            results.sort(key=lambda result: (-result.score, result.title, result.path))
+            return results[:limit]
 
     def read_note(self, note_id: str | None = None, path: str | None = None) -> dict[str, Any]:
         if not note_id and not path:
@@ -282,8 +285,13 @@ class RetrievalService:
         try:
             return conn.execute(
                 f"""
-                SELECT n.note_id, n.path, n.title, n.type,
+                SELECT n.note_id, n.path, n.title, n.type, n.status, n.mtime,
                        bm25(fts_notes) * -1.0 AS score,
+                       COALESCE((
+                           SELECT group_concat(h.text, ' ')
+                           FROM headings h
+                           WHERE h.note_id = n.note_id
+                       ), '') AS heading_text,
                        snippet(fts_notes, 2, '<mark>', '</mark>', '...', 24) AS matched_excerpt
                 FROM fts_notes
                 JOIN notes n ON n.note_id = fts_notes.note_id
@@ -319,7 +327,12 @@ class RetrievalService:
         params = [*like_params, *filter_params, limit]
         return conn.execute(
             f"""
-            SELECT n.note_id, n.path, n.title, n.type, 0.0 AS score,
+            SELECT n.note_id, n.path, n.title, n.type, n.status, n.mtime, 0.0 AS score,
+                   COALESCE((
+                       SELECT group_concat(h.text, ' ')
+                       FROM headings h
+                       WHERE h.note_id = n.note_id
+                   ), '') AS heading_text,
                    n.body_preview AS matched_excerpt
             FROM notes n
             JOIN fts_notes f ON f.note_id = n.note_id
@@ -385,6 +398,70 @@ def build_note_filters(
     if not clauses:
         return "", params
     return "AND " + " AND ".join(clauses), params
+
+
+def search_relevance_score(query: str, row: sqlite3.Row) -> float:
+    terms = {term.lower() for term in search_terms(query)}
+    title = str(row["title"] or "")
+    heading_text = str(row["heading_text"] or "")
+    path = str(row["path"] or "")
+    note_type = str(row["type"] or "")
+    status = str(row["status"] or "")
+    excerpt = str(row["matched_excerpt"] or "")
+    title_terms = keyword_set(title)
+    heading_terms = keyword_set(heading_text)
+    path_terms = keyword_set(path.replace("/", " ").replace("-", " ").replace("_", " "))
+    excerpt_terms = keyword_set(excerpt)
+    score = float(row["score"] or 0.0)
+    title_lower = title.lower()
+    query_lower = strip_markdown(query).lower().strip()
+    if query_lower and query_lower == title_lower:
+        score += 12.0
+    elif query_lower and query_lower in title_lower:
+        score += 8.0
+    score += 4.0 * len(terms.intersection(title_terms))
+    score += 2.5 * len(terms.intersection(heading_terms))
+    score += 1.5 * len(terms.intersection(path_terms))
+    score += 0.5 * len(terms.intersection(excerpt_terms))
+    score += note_type_search_boost(note_type)
+    score += status_search_boost(status)
+    score += freshness_boost(row["mtime"])
+    return round(score, 6)
+
+
+def note_type_search_boost(note_type: str) -> float:
+    boosts = {
+        "map": 1.2,
+        "project": 1.0,
+        "concept": 0.9,
+        "source": 0.6,
+        "system": 0.4,
+        "entity": 0.3,
+        "output": 0.2,
+        "journal": 0.1,
+        "inbox": 0.0,
+    }
+    return boosts.get(note_type, 0.0)
+
+
+def status_search_boost(status: str) -> float:
+    boosts = {
+        "evergreen": 1.0,
+        "active": 0.8,
+        "seed": 0.2,
+        "inbox": 0.0,
+        "archived": -1.0,
+    }
+    return boosts.get(status, 0.0)
+
+
+def freshness_boost(mtime: Any) -> float:
+    try:
+        value = float(mtime)
+    except (TypeError, ValueError):
+        return 0.0
+    # Small stable nudge; relevance signals should dominate.
+    return min(max(value / 10_000_000_000, 0.0), 0.2)
 
 
 def strip_markdown(text: str) -> str:

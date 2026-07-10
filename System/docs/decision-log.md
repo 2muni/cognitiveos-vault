@@ -239,3 +239,26 @@ Decision:
 Rationale:
 
 Future local LLM and Codex workflows need more than raw excerpts. A structured context pack gives the model prompt-ready text while also preserving source paths and evidence for auditability.
+
+### Decision: Search Ranking v0.2
+
+`search_notes` now reranks SQLite FTS/LIKE candidates with local PKM signals.
+
+Decision:
+
+- keep SQLite FTS/LIKE as the candidate generator
+- fetch more candidates than the requested limit
+- rerank candidates in Python
+- prioritize exact and partial title matches
+- add heading, path, excerpt, note type, status, and small freshness boosts
+- keep vector search deferred beyond v0.1
+
+Rationale:
+
+FTS ranking alone is too generic for a PKM vault. Title, headings, lifecycle status, and note type encode useful human intent while remaining deterministic and local-first.
+
+Verification:
+
+- unit tests cover title and heading reranking
+- actual vault search for `CognitiveOS MCP PKM` returned relevant system documents
+- `AGENTS.md` and `README.md` are now inferred as `system` when frontmatter is missing

@@ -38,7 +38,17 @@ Input:
 }
 ```
 
-Output: list of search results containing `note_id`, `path`, `title`, `type`, `score`, and `matched_excerpt`.
+Output: ranked list of search results containing `note_id`, `path`, `title`, `type`, `score`, and `matched_excerpt`.
+
+Ranking v0.2 uses SQLite FTS/LIKE candidates and then reranks with local PKM signals:
+
+- exact or partial title match
+- heading term match
+- path term match
+- matched excerpt term overlap
+- note type boost
+- status boost
+- small freshness boost
 
 ### `read_note`
 

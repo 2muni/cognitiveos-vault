@@ -167,6 +167,8 @@ def derive_title(frontmatter: dict[str, Any], headings: list[Heading], path: Pat
 
 
 def infer_note_type(rel_path: str) -> str:
+    if rel_path in {"AGENTS.md", "README.md"}:
+        return "system"
     first_part = rel_path.split("/", 1)[0]
     if first_part == "System":
         return "system"

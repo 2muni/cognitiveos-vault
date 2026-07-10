@@ -21,6 +21,9 @@ Assets/**
 # Obsidian local state and private plugin/config data
 .obsidian/
 
+# Editor local state
+.vscode/
+
 # Obsidian and sync trash
 .trash/
 

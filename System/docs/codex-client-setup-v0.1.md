@@ -42,6 +42,9 @@ enabled_tools = [
   "list_recent_notes",
   "get_backlinks",
   "get_related_notes",
+  "suggest_links",
+  "summarize_source",
+  "propose_moc",
   "build_context_pack",
 ]
 default_tools_approval_mode = "prompt"
@@ -120,6 +123,9 @@ This command starts a stdio server and waits for protocol input, so no normal pr
 - `list_recent_notes`
 - `get_backlinks`
 - `get_related_notes`
+- `suggest_links`
+- `summarize_source`
+- `propose_moc`
 - `build_context_pack`
 
 ## Completed Verification

@@ -90,6 +90,45 @@ Input:
 
 Output: notes related by explicit links or matching metadata.
 
+### `suggest_links`
+
+Input:
+
+```json
+{
+  "note_id": "string",
+  "limit": 10
+}
+```
+
+Output: candidate internal links for the selected note, including `note_id`, `path`, `title`, `type`, `reason`, and `score`. This is read-only and does not modify Markdown.
+
+### `summarize_source`
+
+Input:
+
+```json
+{
+  "note_id": "optional string",
+  "path": "optional vault-relative path"
+}
+```
+
+Output: extractive summary, headings, and evidence paragraphs for one note. This is grounded in the note body and does not call an LLM in v0.1.
+
+### `propose_moc`
+
+Input:
+
+```json
+{
+  "query": "string",
+  "limit": 10
+}
+```
+
+Output: proposed map-of-content structure grouped by note type. This returns an outline only and sets `writeback` to `false`.
+
 ### `build_context_pack`
 
 Input:
@@ -132,6 +171,9 @@ enabled_tools = [
   "list_recent_notes",
   "get_backlinks",
   "get_related_notes",
+  "suggest_links",
+  "summarize_source",
+  "propose_moc",
   "build_context_pack",
 ]
 default_tools_approval_mode = "prompt"

@@ -157,6 +157,50 @@ Local-first systems need durable Markdown.
         context_pack = service.build_context_pack("durable", limit=2)
         self.assertIn("path:", context_pack.context)
 
+    def test_read_only_generation_helpers(self) -> None:
+        self.write_note(
+            "alpha.md",
+            """---
+id: alpha
+type: source
+title: Alpha Source
+---
+# Alpha Source
+
+Durable Markdown systems connect concepts through local-first retrieval.
+
+This source explains evidence-first context packs.
+""",
+        )
+        self.write_note(
+            "beta.md",
+            """---
+id: beta
+type: concept
+title: Local-first Retrieval
+---
+# Local-first Retrieval
+
+Durable Markdown systems need retrieval and context packs.
+""",
+        )
+        self.index()
+
+        service = RetrievalService(self.root, self.db_path)
+
+        suggestions = service.suggest_links("alpha", limit=5)
+        self.assertEqual(suggestions[0]["note_id"], "beta")
+
+        summary = service.summarize_source(note_id="alpha")
+        self.assertEqual(summary["note_id"], "alpha")
+        self.assertIn("Durable Markdown", summary["summary"])
+        self.assertGreaterEqual(len(summary["evidence"]), 1)
+
+        moc = service.propose_moc("Durable Markdown retrieval", limit=5)
+        self.assertFalse(moc["writeback"])
+        self.assertGreaterEqual(moc["note_count"], 2)
+        self.assertTrue(any(section["type"] == "concept" for section in moc["sections"]))
+
     def test_type_filter_and_missing_note_errors(self) -> None:
         self.write_note("---ignored.md", "not frontmatter")
         self.write_note("source.md", "---\nid: src\ntype: source\ntitle: Source\n---\nBody keyword")
@@ -254,6 +298,9 @@ Read-only MCP tools expose Markdown search.
         list_response = handle_message(service, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         tool_names = {tool["name"] for tool in list_response["result"]["tools"]}
         self.assertIn("search_notes", tool_names)
+        self.assertIn("suggest_links", tool_names)
+        self.assertIn("summarize_source", tool_names)
+        self.assertIn("propose_moc", tool_names)
         self.assertIn("build_context_pack", tool_names)
 
         call_response = handle_message(

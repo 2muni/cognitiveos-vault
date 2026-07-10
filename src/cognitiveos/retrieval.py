@@ -115,6 +115,79 @@ class RetrievalService:
         results = [result for result in self.search_notes(query, limit=limit + 1) if result.note_id != note_id]
         return [result.__dict__ for result in results[:limit]]
 
+    def suggest_links(self, note_id: str, limit: int = 10) -> list[dict[str, Any]]:
+        note = self.read_note(note_id=note_id)
+        existing_targets = {link["target"] for link in note["links"]}
+        existing_targets.update({link["display"] for link in note["links"] if link.get("display")})
+        query = " ".join(
+            [note["title"], *[heading["text"] for heading in note["headings"][:5]], note["body"][:500]]
+        ).strip()
+        if not query:
+            query = note["body"][:200]
+        candidates = self.search_notes(query, limit=limit * 3)
+        suggestions: list[dict[str, Any]] = []
+        for candidate in candidates:
+            if candidate.note_id == note_id:
+                continue
+            target_names = {candidate.note_id, candidate.path, candidate.title, Path(candidate.path).stem}
+            if existing_targets.intersection(target_names):
+                continue
+            suggestions.append(
+                {
+                    "note_id": candidate.note_id,
+                    "path": candidate.path,
+                    "title": candidate.title,
+                    "type": candidate.note_type,
+                    "reason": candidate.matched_excerpt,
+                    "score": candidate.score,
+                }
+            )
+            if len(suggestions) >= max(1, min(limit, 50)):
+                break
+        return suggestions
+
+    def summarize_source(self, note_id: str | None = None, path: str | None = None) -> dict[str, Any]:
+        note = self.read_note(note_id=note_id, path=path)
+        body = note["body"].strip()
+        paragraphs = [paragraph.strip() for paragraph in re.split(r"\n\s*\n", body) if paragraph.strip()]
+        evidence = paragraphs[:3]
+        summary = " ".join(strip_markdown(paragraph) for paragraph in evidence)
+        if len(summary) > 800:
+            summary = summary[:797].rstrip() + "..."
+        return {
+            "note_id": note["note_id"],
+            "path": note["path"],
+            "title": note["title"],
+            "type": note["type"],
+            "summary": summary,
+            "headings": note["headings"][:10],
+            "evidence": evidence,
+        }
+
+    def propose_moc(self, query: str, limit: int = 10) -> dict[str, Any]:
+        results = self.search_notes(query, limit=limit)
+        sections: dict[str, list[dict[str, Any]]] = {}
+        for result in results:
+            sections.setdefault(result.note_type, []).append(
+                {
+                    "note_id": result.note_id,
+                    "path": result.path,
+                    "title": result.title,
+                    "excerpt": result.matched_excerpt,
+                }
+            )
+        ordered_sections = [
+            {"type": section_type, "notes": notes}
+            for section_type, notes in sorted(sections.items(), key=lambda item: item[0])
+        ]
+        return {
+            "query": query,
+            "title": f"MOC: {query}",
+            "sections": ordered_sections,
+            "note_count": len(results),
+            "writeback": False,
+        }
+
     def build_context_pack(self, query: str, limit: int = 5) -> ContextPack:
         results = self.search_notes(query, limit=limit)
         blocks = []
@@ -242,6 +315,15 @@ def build_note_filters(
     if not clauses:
         return "", params
     return "AND " + " AND ".join(clauses), params
+
+
+def strip_markdown(text: str) -> str:
+    text = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[\[([^|\]]+)\|([^\]]+)\]\]", r"\2", text)
+    text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", text)
+    text = re.sub(r"[*_`>#-]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def search_terms(query: str) -> list[str]:

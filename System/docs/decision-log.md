@@ -171,3 +171,19 @@ Result:
 Conclusion:
 
 Client-level `/mcp` verification is blocked by local client availability, not by the CognitiveOS MCP server. The next verification path is either installing/enabling the Codex IDE extension in VS Code or installing a standalone Codex CLI that can run outside the WindowsApps package boundary.
+
+### Decision: Expand Read-only MCP Tool Surface
+
+The read-only MCP surface was aligned with `AGENTS.md`.
+
+Decision:
+
+- add `suggest_links`
+- add `summarize_source`
+- add `propose_moc`
+- keep all three tools read-only
+- keep writeback and automatic Markdown mutation out of v0.1
+
+Rationale:
+
+These tools support PKM workflows without changing source Markdown. `suggest_links` proposes internal links from indexed evidence, `summarize_source` returns an extractive summary grounded in one note, and `propose_moc` returns a map-of-content outline with `writeback = false`.

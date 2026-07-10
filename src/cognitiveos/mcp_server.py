@@ -76,6 +76,21 @@ def main() -> None:
         return service.get_related_notes(note_id, limit)
 
     @mcp.tool()
+    def suggest_links(note_id: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Suggest candidate internal links for a note. Read-only."""
+        return service.suggest_links(note_id, limit)
+
+    @mcp.tool()
+    def summarize_source(note_id: str | None = None, path: str | None = None) -> dict[str, Any]:
+        """Return an extractive source summary with evidence. Read-only."""
+        return service.summarize_source(note_id=note_id, path=path)
+
+    @mcp.tool()
+    def propose_moc(query: str, limit: int = 10) -> dict[str, Any]:
+        """Propose a map-of-content outline from retrieved notes. Read-only."""
+        return service.propose_moc(query, limit)
+
+    @mcp.tool()
     def build_context_pack(query: str, limit: int = 5) -> dict[str, Any]:
         """Build a compact evidence pack for a query."""
         return context_pack_to_dict(service.build_context_pack(query, limit))
@@ -167,6 +182,18 @@ def call_tool(
         elif name == "get_related_notes":
             result = service.get_related_notes(
                 note_id=str(arguments.get("note_id") or ""),
+                limit=int(arguments.get("limit") or 10),
+            )
+        elif name == "suggest_links":
+            result = service.suggest_links(
+                note_id=str(arguments.get("note_id") or ""),
+                limit=int(arguments.get("limit") or 10),
+            )
+        elif name == "summarize_source":
+            result = service.summarize_source(note_id=arguments.get("note_id"), path=arguments.get("path"))
+        elif name == "propose_moc":
+            result = service.propose_moc(
+                query=str(arguments.get("query") or ""),
                 limit=int(arguments.get("limit") or 10),
             )
         elif name == "build_context_pack":
@@ -262,6 +289,47 @@ def tool_definitions() -> list[dict[str, Any]]:
                     "limit": {"type": "integer", "minimum": 1, "maximum": 50},
                 },
                 "required": ["note_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "suggest_links",
+            "title": "Suggest links",
+            "description": "Suggest candidate internal links for a note. Read-only.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "note_id": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                },
+                "required": ["note_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "summarize_source",
+            "title": "Summarize source",
+            "description": "Return an extractive source summary with evidence. Read-only.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "note_id": {"type": "string"},
+                    "path": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "propose_moc",
+            "title": "Propose MOC",
+            "description": "Propose a map-of-content outline from retrieved notes. Read-only.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                },
+                "required": ["query"],
                 "additionalProperties": False,
             },
         },

@@ -4,6 +4,12 @@
 
 Release name: CognitiveOS read-only MVP
 
+Release notes:
+
+```text
+System/docs/release-notes-v0.1.0.md
+```
+
 Package version:
 
 ```text

@@ -346,3 +346,19 @@ Decision:
 Rationale:
 
 Hotfix rules keep emergency changes small and auditable. Version bump rules prevent tags from being created without matching project metadata.
+
+### Decision: v0.1.0 Release Notes
+
+The `v0.1.0` GitHub release notes were drafted and stored under `System/docs`.
+
+Decision:
+
+- keep release notes at `System/docs/release-notes-v0.1.0.md`
+- summarize included read-only capabilities
+- explicitly list excluded writeback/vector/graph/local LLM work
+- include verification snapshot
+- include known limitations and next version candidates
+
+Rationale:
+
+Release notes should be reproducible from the repository itself, not only from GitHub UI text.

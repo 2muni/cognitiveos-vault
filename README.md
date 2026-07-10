@@ -162,6 +162,12 @@ System/docs/release-v0.1.md
 
 It also defines the hotfix flow and version bump procedure.
 
+The v0.1.0 release notes are maintained in:
+
+```text
+System/docs/release-notes-v0.1.0.md
+```
+
 Current package version:
 
 ```text

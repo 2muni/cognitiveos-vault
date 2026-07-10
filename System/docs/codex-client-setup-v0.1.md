@@ -12,7 +12,9 @@ Result:
 
 - VS Code is installed.
   - Version: `1.128.0`
-- No installed VS Code extension matching `codex` or `openai` was found.
+- Codex VS Code extension is installed.
+  - Extension ID: `openai.chatgpt`
+  - Version: `26.707.31428`
 - `node` was not found on the current PowerShell PATH.
 - `npm` was not found on the current PowerShell PATH.
 - `winget` was not found on the current PowerShell PATH.
@@ -120,7 +122,26 @@ This command starts a stdio server and waits for protocol input, so no normal pr
 - `get_related_notes`
 - `build_context_pack`
 
+## Completed Verification
+
+Completed on 2026-07-10:
+
+- VS Code extension installation succeeded:
+  - `openai.chatgpt@26.707.31428`
+- The CognitiveOS MCP server starts through `scripts/run-cognitiveos-mcp.ps1`.
+- The MCP server responds to `initialize`.
+- The MCP server responds to `tools/list`.
+- The advertised tools are read-only.
+
+Remaining manual verification:
+
+- Open VS Code after extension installation.
+- Sign in to Codex if prompted.
+- Open the Codex sidebar.
+- Confirm the extension loads the project-scoped `.codex/config.toml`.
+- Confirm the `cognitiveos` MCP server appears in the Codex UI.
+- Run a read-only call from the Codex UI, preferably `list_recent_notes` or `search_notes`.
+
 ## Decision
 
-Client-level MCP verification is not blocked by the CognitiveOS implementation. It is blocked only by the absence of an accessible Codex IDE extension or standalone CLI in the current local environment.
-
+Client-level MCP verification is no longer blocked by extension installation. The remaining step is interactive VS Code/Codex sign-in and UI-level MCP discovery.

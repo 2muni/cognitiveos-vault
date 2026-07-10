@@ -391,6 +391,61 @@ Read-only MCP tools expose Markdown search.
         self.assertFalse(call_response["result"]["isError"])
         self.assertIn("mcp_concept", call_response["result"]["content"][0]["text"])
 
+    def test_basic_mcp_tool_argument_validation(self) -> None:
+        self.write_note(
+            "concept.md",
+            """---
+id: mcp_concept
+type: concept
+title: MCP Concept
+---
+# MCP Concept
+
+Read-only MCP tools expose Markdown search.
+""",
+        )
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        empty_query = handle_message(
+            service,
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {"name": "search_notes", "arguments": {"query": ""}},
+            },
+        )
+        self.assertTrue(empty_query["result"]["isError"])
+        self.assertEqual(empty_query["result"]["structuredContent"]["error"]["code"], "invalid_argument")
+
+        ambiguous_reference = handle_message(
+            service,
+            {
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "tools/call",
+                "params": {
+                    "name": "read_note",
+                    "arguments": {"note_id": "mcp_concept", "path": "concept.md"},
+                },
+            },
+        )
+        self.assertTrue(ambiguous_reference["result"]["isError"])
+        self.assertEqual(ambiguous_reference["result"]["structuredContent"]["error"]["code"], "invalid_argument")
+
+        bad_limit = handle_message(
+            service,
+            {
+                "jsonrpc": "2.0",
+                "id": 6,
+                "method": "tools/call",
+                "params": {"name": "list_recent_notes", "arguments": {"limit": 0}},
+            },
+        )
+        self.assertTrue(bad_limit["result"]["isError"])
+        self.assertEqual(bad_limit["result"]["structuredContent"]["error"]["code"], "invalid_argument")
+
 
 if __name__ == "__main__":
     unittest.main()

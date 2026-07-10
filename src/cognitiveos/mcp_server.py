@@ -11,6 +11,12 @@ from .retrieval import RetrievalService, context_pack_to_dict
 PROTOCOL_VERSION = "2025-11-25"
 
 
+class ToolInputError(ValueError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 def build_service() -> RetrievalService:
     vault_root = os.environ.get("COGNITIVEOS_VAULT_ROOT", ".")
     db_path = os.environ.get("COGNITIVEOS_DB_PATH")
@@ -43,12 +49,13 @@ def main() -> None:
         tag: str | None = None,
     ) -> list[dict[str, Any]]:
         """Search indexed Markdown notes."""
+        query = require_text("query", query)
         return [
             result.__dict__
             for result in service.search_notes(
                 query,
                 note_type=type,
-                limit=limit,
+                limit=normalize_limit(limit, default=10, maximum=50),
                 status=status,
                 domain=domain,
                 tag=tag,
@@ -58,42 +65,49 @@ def main() -> None:
     @mcp.tool()
     def read_note(note_id: str | None = None, path: str | None = None) -> dict[str, Any]:
         """Read one indexed Markdown note by note id or vault-relative path."""
+        note_id, path = normalize_note_reference(note_id=note_id, path=path)
         return service.read_note(note_id=note_id, path=path)
 
     @mcp.tool()
     def list_recent_notes(limit: int = 10) -> list[dict[str, Any]]:
         """List recently modified indexed notes."""
-        return service.list_recent_notes(limit)
+        return service.list_recent_notes(normalize_limit(limit, default=10, maximum=50))
 
     @mcp.tool()
     def get_backlinks(note_id: str) -> list[dict[str, Any]]:
         """Return notes that link to the selected note."""
+        note_id = require_text("note_id", note_id)
         return service.get_backlinks(note_id)
 
     @mcp.tool()
     def get_related_notes(note_id: str, limit: int = 10) -> list[dict[str, Any]]:
         """Return notes related by title, headings, and explicit links."""
-        return service.get_related_notes(note_id, limit)
+        note_id = require_text("note_id", note_id)
+        return service.get_related_notes(note_id, normalize_limit(limit, default=10, maximum=50))
 
     @mcp.tool()
     def suggest_links(note_id: str, limit: int = 10) -> list[dict[str, Any]]:
         """Suggest candidate internal links for a note. Read-only."""
-        return service.suggest_links(note_id, limit)
+        note_id = require_text("note_id", note_id)
+        return service.suggest_links(note_id, normalize_limit(limit, default=10, maximum=50))
 
     @mcp.tool()
     def summarize_source(note_id: str | None = None, path: str | None = None) -> dict[str, Any]:
         """Return an extractive source summary with evidence. Read-only."""
+        note_id, path = normalize_note_reference(note_id=note_id, path=path)
         return service.summarize_source(note_id=note_id, path=path)
 
     @mcp.tool()
     def propose_moc(query: str, limit: int = 10) -> dict[str, Any]:
         """Propose a map-of-content outline from retrieved notes. Read-only."""
-        return service.propose_moc(query, limit)
+        query = require_text("query", query)
+        return service.propose_moc(query, normalize_limit(limit, default=10, maximum=50))
 
     @mcp.tool()
     def build_context_pack(query: str, limit: int = 5) -> dict[str, Any]:
         """Build a compact evidence pack for a query."""
-        return context_pack_to_dict(service.build_context_pack(query, limit))
+        query = require_text("query", query)
+        return context_pack_to_dict(service.build_context_pack(query, normalize_limit(limit, default=5, maximum=20)))
 
     mcp.run()
 
@@ -162,45 +176,48 @@ def call_tool(
 ) -> dict[str, Any]:
     try:
         if name == "search_notes":
+            query = require_text("query", arguments.get("query"))
             result = [
                 item.__dict__
                 for item in service.search_notes(
-                    query=str(arguments.get("query") or ""),
-                    note_type=arguments.get("type"),
-                    limit=int(arguments.get("limit") or 10),
-                    status=arguments.get("status"),
-                    domain=arguments.get("domain"),
-                    tag=arguments.get("tag"),
+                    query=query,
+                    note_type=optional_text(arguments.get("type")),
+                    limit=normalize_limit(arguments.get("limit"), default=10, maximum=50),
+                    status=optional_text(arguments.get("status")),
+                    domain=optional_text(arguments.get("domain")),
+                    tag=optional_text(arguments.get("tag")),
                 )
             ]
         elif name == "read_note":
-            result = service.read_note(note_id=arguments.get("note_id"), path=arguments.get("path"))
+            note_id, path = normalize_note_reference(note_id=arguments.get("note_id"), path=arguments.get("path"))
+            result = service.read_note(note_id=note_id, path=path)
         elif name == "list_recent_notes":
-            result = service.list_recent_notes(limit=int(arguments.get("limit") or 10))
+            result = service.list_recent_notes(limit=normalize_limit(arguments.get("limit"), default=10, maximum=50))
         elif name == "get_backlinks":
-            result = service.get_backlinks(note_id=str(arguments.get("note_id") or ""))
+            result = service.get_backlinks(note_id=require_text("note_id", arguments.get("note_id")))
         elif name == "get_related_notes":
             result = service.get_related_notes(
-                note_id=str(arguments.get("note_id") or ""),
-                limit=int(arguments.get("limit") or 10),
+                note_id=require_text("note_id", arguments.get("note_id")),
+                limit=normalize_limit(arguments.get("limit"), default=10, maximum=50),
             )
         elif name == "suggest_links":
             result = service.suggest_links(
-                note_id=str(arguments.get("note_id") or ""),
-                limit=int(arguments.get("limit") or 10),
+                note_id=require_text("note_id", arguments.get("note_id")),
+                limit=normalize_limit(arguments.get("limit"), default=10, maximum=50),
             )
         elif name == "summarize_source":
-            result = service.summarize_source(note_id=arguments.get("note_id"), path=arguments.get("path"))
+            note_id, path = normalize_note_reference(note_id=arguments.get("note_id"), path=arguments.get("path"))
+            result = service.summarize_source(note_id=note_id, path=path)
         elif name == "propose_moc":
             result = service.propose_moc(
-                query=str(arguments.get("query") or ""),
-                limit=int(arguments.get("limit") or 10),
+                query=require_text("query", arguments.get("query")),
+                limit=normalize_limit(arguments.get("limit"), default=10, maximum=50),
             )
         elif name == "build_context_pack":
             result = context_pack_to_dict(
                 service.build_context_pack(
-                    query=str(arguments.get("query") or ""),
-                    limit=int(arguments.get("limit") or 5),
+                    query=require_text("query", arguments.get("query")),
+                    limit=normalize_limit(arguments.get("limit"), default=5, maximum=20),
                 )
             )
         else:
@@ -214,14 +231,14 @@ def call_tool(
                 "isError": False,
             },
         )
+    except ToolInputError as exc:
+        return tool_error_response(request_id, exc.code, str(exc))
+    except KeyError as exc:
+        return tool_error_response(request_id, "not_found", str(exc))
+    except ValueError as exc:
+        return tool_error_response(request_id, "invalid_request", str(exc))
     except Exception as exc:
-        return result_response(
-            request_id,
-            {
-                "content": [{"type": "text", "text": str(exc)}],
-                "isError": True,
-            },
-        )
+        return tool_error_response(request_id, "internal_error", str(exc))
 
 
 def tool_definitions() -> list[dict[str, Any]]:
@@ -350,8 +367,57 @@ def tool_definitions() -> list[dict[str, Any]]:
     ]
 
 
+def require_text(name: str, value: Any) -> str:
+    if not isinstance(value, str):
+        raise ToolInputError("invalid_argument", f"{name} must be a non-empty string")
+    value = value.strip()
+    if not value:
+        raise ToolInputError("invalid_argument", f"{name} must be a non-empty string")
+    return value
+
+
+def optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ToolInputError("invalid_argument", "optional text argument must be a string")
+    value = value.strip()
+    return value or None
+
+
+def normalize_limit(value: Any, default: int, maximum: int) -> int:
+    if value is None:
+        return default
+    try:
+        limit = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ToolInputError("invalid_argument", "limit must be an integer") from exc
+    if limit < 1:
+        raise ToolInputError("invalid_argument", "limit must be at least 1")
+    return min(limit, maximum)
+
+
+def normalize_note_reference(note_id: Any = None, path: Any = None) -> tuple[str | None, str | None]:
+    normalized_note_id = optional_text(note_id)
+    normalized_path = optional_text(path)
+    if bool(normalized_note_id) == bool(normalized_path):
+        raise ToolInputError("invalid_argument", "provide exactly one of note_id or path")
+    return normalized_note_id, normalized_path
+
+
 def result_response(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def tool_error_response(request_id: Any, code: str, message: str) -> dict[str, Any]:
+    return result_response(
+        request_id,
+        {
+            "content": [{"type": "text", "text": message}],
+            "structuredContent": {"error": {"code": code, "message": message}},
+            "isError": True,
+        },
+    )
 
 
 def error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:

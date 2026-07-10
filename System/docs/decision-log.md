@@ -262,3 +262,37 @@ Verification:
 - unit tests cover title and heading reranking
 - actual vault search for `CognitiveOS MCP PKM` returned relevant system documents
 - `AGENTS.md` and `README.md` are now inferred as `system` when frontmatter is missing
+
+### Decision: MCP Argument Validation and Tool Error Semantics
+
+The basic stdio MCP server now validates tool arguments before calling retrieval services.
+
+Decision:
+
+- reject empty required strings
+- reject missing or ambiguous note references
+- reject invalid `limit` values
+- clamp valid limits to tool-specific maximums
+- return tool-level errors with `isError = true`
+- include structured error codes in `structuredContent.error`
+
+Rationale:
+
+Retrieval tools should fail predictably at the MCP boundary instead of passing empty or ambiguous values into lower layers.
+
+### Decision: Writeback Permission Boundary v0.1
+
+Writeback remains outside the current implementation and is documented as a future two-phase proposal/apply system.
+
+Decision:
+
+- keep v0.1 MCP tools read-only
+- document future write tools separately in `System/docs/writeback-permissions-v0.1.md`
+- require explicit approval for every write operation
+- require previews or diffs before writes
+- require checksum verification before applying patches
+- keep writeback logs as derived Git-ignored artifacts
+
+Rationale:
+
+Markdown files are durable records. Writeback must be auditable, approval-gated, and vault-root constrained before any MCP write tools are enabled.

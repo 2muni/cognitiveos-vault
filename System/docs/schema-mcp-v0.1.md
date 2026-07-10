@@ -187,6 +187,38 @@ The following are intentionally excluded from v0.1:
 
 They require a separate approval and safety design.
 
+## Tool Error Semantics
+
+The basic stdio server returns MCP-style tool results for tool execution failures.
+
+For invalid tool arguments, missing notes, rejected paths, or internal failures, the response shape is:
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "error message"
+    }
+  ],
+  "structuredContent": {
+    "error": {
+      "code": "invalid_argument | not_found | invalid_request | internal_error",
+      "message": "error message"
+    }
+  },
+  "isError": true
+}
+```
+
+Validation rules:
+
+- required string arguments must be non-empty after trimming
+- `read_note` and `summarize_source` require exactly one of `note_id` or `path`
+- `limit` must be an integer greater than or equal to `1`
+- tool-specific maximum limits are enforced server-side
+- paths remain restricted to the vault root
+
 ## Codex Config
 
 ```toml

@@ -187,3 +187,21 @@ Decision:
 Rationale:
 
 These tools support PKM workflows without changing source Markdown. `suggest_links` proposes internal links from indexed evidence, `summarize_source` returns an extractive summary grounded in one note, and `propose_moc` returns a map-of-content outline with `writeback = false`.
+
+### Verification: Actual Vault Read-only Helper Tools
+
+The actual vault was reindexed after expanding the read-only MCP surface.
+
+Result:
+
+- indexed 32 Markdown notes
+- `System/docs/decision-log.md` is inferred as `system` without editing source Markdown
+- `suggest_links` returned relevant system documents for the decision log
+- `propose_moc("CognitiveOS MCP PKM")` grouped matching system documents under a `system` section
+- all helper outputs remained read-only and produced no Markdown writeback
+
+Decision:
+
+- keep path-inferred runtime note types for known operational folders
+- keep `suggest_links` keyword-overlap reranking as the v0.1 heuristic
+- keep `propose_moc` grouped by note type with `writeback = false`

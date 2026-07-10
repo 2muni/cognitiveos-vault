@@ -73,6 +73,12 @@ See [[Source Note|source]] and [example](https://example.com).
         self.assertEqual(note.status, "seed")
         self.assertEqual(note.title, "Raw Capture")
 
+    def test_system_path_infers_system_type_without_frontmatter(self) -> None:
+        path = self.write_note("System/docs/design.md", "# Design\n\nRuntime schema.")
+        note = parse_markdown_file(path, self.root)
+
+        self.assertEqual(note.note_type, "system")
+
     def test_broken_yaml_does_not_fail_parsing(self) -> None:
         path = self.write_note("broken.md", "---\ntitle: [broken\n---\n# Body")
         note = parse_markdown_file(path, self.root)

@@ -124,7 +124,8 @@ class RetrievalService:
         ).strip()
         if not query:
             query = note["body"][:200]
-        candidates = self.search_notes(query, limit=limit * 3)
+        source_terms = keyword_set(query)
+        candidates = self.search_notes(query, limit=max(limit * 4, 20))
         suggestions: list[dict[str, Any]] = []
         for candidate in candidates:
             if candidate.note_id == note_id:
@@ -132,19 +133,28 @@ class RetrievalService:
             target_names = {candidate.note_id, candidate.path, candidate.title, Path(candidate.path).stem}
             if existing_targets.intersection(target_names):
                 continue
+            candidate_note = self.read_note(note_id=candidate.note_id)
+            candidate_text = " ".join(
+                [
+                    candidate_note["title"],
+                    *[heading["text"] for heading in candidate_note["headings"][:5]],
+                    candidate_note["body"][:800],
+                ]
+            )
+            overlap = sorted(source_terms.intersection(keyword_set(candidate_text)))
+            overlap_score = float(len(overlap))
             suggestions.append(
                 {
                     "note_id": candidate.note_id,
                     "path": candidate.path,
                     "title": candidate.title,
                     "type": candidate.note_type,
-                    "reason": candidate.matched_excerpt,
-                    "score": candidate.score,
+                    "reason": link_reason(candidate.matched_excerpt, overlap),
+                    "score": candidate.score + overlap_score,
                 }
             )
-            if len(suggestions) >= max(1, min(limit, 50)):
-                break
-        return suggestions
+        suggestions.sort(key=lambda item: (-float(item["score"]), item["title"]))
+        return suggestions[: max(1, min(limit, 50))]
 
     def summarize_source(self, note_id: str | None = None, path: str | None = None) -> dict[str, Any]:
         note = self.read_note(note_id=note_id, path=path)
@@ -178,7 +188,7 @@ class RetrievalService:
             )
         ordered_sections = [
             {"type": section_type, "notes": notes}
-            for section_type, notes in sorted(sections.items(), key=lambda item: item[0])
+            for section_type, notes in sorted(sections.items(), key=lambda item: note_type_rank(item[0]))
         ]
         return {
             "query": query,
@@ -326,5 +336,50 @@ def strip_markdown(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def keyword_set(text: str) -> set[str]:
+    stopwords = {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "for",
+        "from",
+        "in",
+        "is",
+        "of",
+        "or",
+        "that",
+        "the",
+        "this",
+        "to",
+        "with",
+    }
+    return {term.lower() for term in search_terms(strip_markdown(text)) if len(term) > 2 and term.lower() not in stopwords}
+
+
+def link_reason(excerpt: str, overlap: list[str]) -> str:
+    if overlap:
+        terms = ", ".join(overlap[:8])
+        return f"Shared terms: {terms}. Evidence: {excerpt}"
+    return excerpt
+
+
+def note_type_rank(note_type: str) -> tuple[int, str]:
+    order = {
+        "map": 0,
+        "project": 1,
+        "concept": 2,
+        "entity": 3,
+        "source": 4,
+        "system": 5,
+        "output": 6,
+        "journal": 7,
+        "inbox": 8,
+    }
+    return (order.get(note_type, 99), note_type)
+
+
 def search_terms(query: str) -> list[str]:
+    return [term for term in re.split(r"[^\w]+", query, flags=re.UNICODE) if term]
     return [term for term in re.split(r"[^0-9A-Za-z가-힣_]+", query) if term]

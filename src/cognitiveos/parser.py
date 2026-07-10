@@ -37,7 +37,7 @@ def parse_markdown_file(path: str | Path, vault_root: str | Path) -> NoteDocumen
     links = extract_links(body)
     title = derive_title(frontmatter, headings, absolute)
     note_id = str(frontmatter.get("id") or stable_note_id(rel_path))
-    note_type = str(frontmatter.get("type") or "inbox")
+    note_type = str(frontmatter.get("type") or infer_note_type(rel_path))
     if note_type not in VALID_NOTE_TYPES:
         note_type = "inbox"
     status = str(frontmatter.get("status") or "seed")
@@ -164,6 +164,27 @@ def derive_title(frontmatter: dict[str, Any], headings: list[Heading], path: Pat
     if headings:
         return headings[0].text
     return path.stem
+
+
+def infer_note_type(rel_path: str) -> str:
+    first_part = rel_path.split("/", 1)[0]
+    if first_part == "System":
+        return "system"
+    if first_part == "00_Inbox":
+        return "inbox"
+    if first_part == "01_Concepts":
+        return "concept"
+    if first_part == "02_Entities":
+        return "entity"
+    if first_part == "03_Projects":
+        return "project"
+    if first_part == "04_References":
+        return "source"
+    if first_part == "05_Journal":
+        return "journal"
+    if first_part == "06_Maps":
+        return "map"
+    return "inbox"
 
 
 def stable_note_id(rel_path: str) -> str:

@@ -25,7 +25,7 @@ visibility: private | shared | public
 If a field is missing, the indexer applies runtime defaults without editing the source file:
 
 - `id`: stable hash derived from the relative path
-- `type`: `inbox`
+- `type`: frontmatter type, path-inferred type for known operational folders, or `inbox`
 - `title`: frontmatter title, first heading, or filename stem
 - `status`: `seed`
 - `aliases`, `tags`, `domains`, `links`, `sources`: empty list
@@ -58,3 +58,20 @@ The parser derives these fields for indexing:
 - `body_preview`: shortened body text for search results
 
 Derived fields are not written back to Markdown in v0.1.
+
+## Path-inferred Types
+
+Folder location is not the only source of meaning, but the indexer may use it as a runtime hint when frontmatter is missing.
+
+| Path prefix | Inferred type |
+| --- | --- |
+| `System/` | `system` |
+| `00_Inbox/` | `inbox` |
+| `01_Concepts/` | `concept` |
+| `02_Entities/` | `entity` |
+| `03_Projects/` | `project` |
+| `04_References/` | `source` |
+| `05_Journal/` | `journal` |
+| `06_Maps/` | `map` |
+
+This inference is index-only and does not edit source Markdown.

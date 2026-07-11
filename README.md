@@ -25,6 +25,7 @@ Implemented:
 - deterministic token budgets and evidence allocation
 - explicit text/JSON CLI output formats
 - provider-neutral embedding boundary with strict output validation
+- deterministic `markdown-blocks-v1` embedding chunker and stable chunk ids
 - writeback permission design
 
 Deferred:
@@ -102,7 +103,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 26 tests
+Ran 32 tests
 OK
 ```
 
@@ -190,8 +191,9 @@ The approved design for future opt-in semantic retrieval is maintained in:
 System/docs/embeddings-design-v0.3.md
 ```
 
-The provider-neutral interface is implemented, but embedding storage, model
-adapters, and semantic retrieval remain disabled and unavailable by default.
+The provider-neutral interface and deterministic chunker are implemented, but
+embedding storage, model adapters, and semantic retrieval remain disabled and
+unavailable by default.
 
 ## Release Policy
 

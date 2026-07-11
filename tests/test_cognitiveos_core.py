@@ -16,6 +16,12 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from cognitiveos.cli import main_index, main_search
+from cognitiveos.embedding_chunks import (
+    CHUNKER_VERSION,
+    chunk_note,
+    markdown_blocks,
+    stable_chunk_id,
+)
 from cognitiveos.embeddings import (
     EmbeddingConfigurationError,
     EmbeddingIdentity,
@@ -218,6 +224,106 @@ class EmbeddingProviderTests(unittest.TestCase):
             with self.subTest(output=output):
                 with self.assertRaises(EmbeddingValidationError):
                     embed_texts(StaticEmbeddingProvider(output=output), ["text"])
+
+
+class EmbeddingChunkTests(CognitiveOSTestCase):
+    def test_markdown_blocks_preserve_kinds_lines_and_heading(self) -> None:
+        blocks = markdown_blocks(
+            "# Retrieval\n\nParagraph line one.\nParagraph line two.\n\n- first\n- second"
+        )
+
+        self.assertEqual([block.kind for block in blocks], ["paragraph", "list"])
+        self.assertEqual([(block.start_line, block.end_line) for block in blocks], [(3, 4), (6, 7)])
+        self.assertTrue(all(block.heading == "Retrieval" for block in blocks))
+
+    def test_chunks_exclude_frontmatter_and_preserve_heading_context(self) -> None:
+        path = self.write_note(
+            "source.md",
+            """---
+id: source
+type: source
+title: Semantic Source
+secret_value: do-not-embed
+---
+# Retrieval
+
+Semantic evidence stays grounded in Markdown.
+""",
+        )
+        note = parse_markdown_file(path, self.root)
+
+        chunks = chunk_note(note)
+
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].heading, "Retrieval")
+        self.assertIn("title: Semantic Source", chunks[0].content)
+        self.assertIn("heading: Retrieval", chunks[0].content)
+        self.assertIn("Semantic evidence", chunks[0].content)
+        self.assertNotIn("secret_value", chunks[0].content)
+        self.assertNotIn("do-not-embed", chunks[0].content)
+        self.assertEqual(chunks[0].chunker_version, CHUNKER_VERSION)
+
+    def test_chunk_ids_and_content_hashes_are_stable(self) -> None:
+        path = self.write_note("note.md", "# Stable\n\nDeterministic chunk content.")
+        note = parse_markdown_file(path, self.root)
+
+        first = chunk_note(note)
+        second = chunk_note(note)
+
+        self.assertEqual(first, second)
+        self.assertEqual(first[0].chunk_id, stable_chunk_id(note.note_id, note.checksum, 0))
+        self.assertEqual(first[0].content_hash, hashlib.sha256(first[0].content.encode("utf-8")).hexdigest())
+
+        path.write_text("# Stable\n\nChanged chunk content.", encoding="utf-8")
+        changed = chunk_note(parse_markdown_file(path, self.root))
+        self.assertNotEqual(first[0].chunk_id, changed[0].chunk_id)
+
+    def test_chunks_respect_character_limit_and_overlap(self) -> None:
+        first_paragraph = "alpha " * 10
+        second_paragraph = "beta " * 12
+        path = self.write_note("overlap.md", f"{first_paragraph}\n\n{second_paragraph}")
+        note = parse_markdown_file(path, self.root)
+
+        chunks = chunk_note(note, max_chars=110, overlap_chars=20)
+
+        self.assertGreaterEqual(len(chunks), 2)
+        self.assertTrue(all(len(chunk.content) <= 110 for chunk in chunks))
+        self.assertEqual([chunk.chunk_index for chunk in chunks], list(range(len(chunks))))
+        overlap = first_paragraph.strip()[-20:].lstrip()
+        self.assertIn(overlap, chunks[1].content)
+
+    def test_long_blocks_split_at_stable_boundaries(self) -> None:
+        path = self.write_note("long.md", "Sentence one. " * 30)
+        note = parse_markdown_file(path, self.root)
+
+        chunks = chunk_note(note, max_chars=100, overlap_chars=15)
+
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(len(chunk.content) <= 100 for chunk in chunks))
+        self.assertTrue(all(chunk.start_line == 1 and chunk.end_line == 1 for chunk in chunks))
+        self.assertEqual(chunks, chunk_note(note, max_chars=100, overlap_chars=15))
+
+    def test_empty_heading_only_notes_and_invalid_limits(self) -> None:
+        empty_path = self.write_note("empty.md", "")
+        empty = chunk_note(parse_markdown_file(empty_path, self.root))
+        self.assertEqual(len(empty), 1)
+        self.assertEqual(empty[0].content, "title: empty")
+
+        heading_path = self.write_note("heading.md", "# Heading Only")
+        heading = chunk_note(parse_markdown_file(heading_path, self.root))
+        self.assertEqual(heading[0].heading, "Heading Only")
+        self.assertIn("title: Heading Only", heading[0].content)
+
+        note = parse_markdown_file(empty_path, self.root)
+        for max_chars, overlap_chars in ((63, 0), (100, -1), (100, 100), (True, 0)):
+            with self.subTest(max_chars=max_chars, overlap_chars=overlap_chars):
+                with self.assertRaises(EmbeddingConfigurationError):
+                    chunk_note(note, max_chars=max_chars, overlap_chars=overlap_chars)
+
+        for note_id, checksum, chunk_index in (("", "sum", 0), ("note", "", 0), ("note", "sum", -1)):
+            with self.subTest(note_id=note_id, checksum=checksum, chunk_index=chunk_index):
+                with self.assertRaises(EmbeddingConfigurationError):
+                    stable_chunk_id(note_id, checksum, chunk_index)
 
 
 class IndexTests(CognitiveOSTestCase):

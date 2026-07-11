@@ -465,3 +465,24 @@ Implementation checkpoint:
 - use a deterministic SHA-256-derived provider only inside tests
 - keep storage, production adapters, CLI, and semantic retrieval deferred
 - expand the automated suite to 26 passing tests
+
+### Implementation Checkpoint: Deterministic Embedding Chunks
+
+Decision:
+
+- implement `markdown-blocks-v1` in `src/cognitiveos/embedding_chunks.py`
+- derive chunk content only from parsed body text, title, and nearest heading
+- keep YAML frontmatter text out of chunk content
+- enforce a 1,600-character default hard limit and 300-character overlap
+- prefer sentence boundaries, then whitespace, before hard splitting
+- store body-relative line ranges and SHA-256 content hashes
+- derive stable chunk ids from note id, note checksum, chunker version, and index
+- emit one identity chunk for empty and heading-only notes
+- keep embedding storage, production adapters, CLI, and hybrid retrieval deferred
+
+Verification:
+
+- tests cover frontmatter exclusion, heading context, deterministic ids and
+  hashes, checksum changes, hard limits, overlap, long blocks, line ranges,
+  empty notes, heading-only notes, and invalid chunk limits
+- the automated suite passes 32 tests

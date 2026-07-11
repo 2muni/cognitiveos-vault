@@ -7,8 +7,9 @@ retrieval after the v0.2 read-only baseline. Embeddings improve candidate recall
 but never replace Markdown, frontmatter, links, SQLite/FTS, or evidence paths as
 the source of truth.
 
-Design status: complete. Implementation status: provider boundary complete;
-chunking, storage, adapters, CLI, and hybrid retrieval deferred.
+Design status: complete. Implementation status: provider boundary and
+deterministic chunking complete; storage, adapters, CLI, and hybrid retrieval
+deferred.
 
 ## Invariants
 
@@ -93,6 +94,14 @@ Chunking is deterministic and tokenizer-independent.
 
 Chunker identity is `markdown-blocks-v1`. Any change to these rules requires a
 new chunker version and a full embedding rebuild.
+
+The chunk model and `markdown-blocks-v1` implementation live in
+`src/cognitiveos/embedding_chunks.py`. The implementation emits title and nearest
+heading context, body-relative line ranges, SHA-256 content hashes, and stable
+chunk ids derived from note id, note checksum, chunker version, and chunk index.
+Empty and heading-only notes still emit one identity chunk. Long title/heading
+prefixes are deterministically shortened only when required to preserve the
+configured hard character limit.
 
 ## Provider Boundary
 

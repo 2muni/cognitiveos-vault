@@ -65,6 +65,23 @@ def provider_identity(provider: Any) -> EmbeddingIdentity:
 
 
 def embed_texts(provider: EmbeddingProvider, texts: Sequence[str]) -> list[list[float]]:
+    return _embed_with_role(provider, texts, role="generic")
+
+
+def embed_documents(provider: EmbeddingProvider, texts: Sequence[str]) -> list[list[float]]:
+    return _embed_with_role(provider, texts, role="documents")
+
+
+def embed_query(provider: EmbeddingProvider, query: str) -> list[float]:
+    return _embed_with_role(provider, [query], role="query")[0]
+
+
+def _embed_with_role(
+    provider: EmbeddingProvider,
+    texts: Sequence[str],
+    *,
+    role: str,
+) -> list[list[float]]:
     if not isinstance(provider, EmbeddingProvider):
         raise EmbeddingConfigurationError("provider does not implement the embedding protocol")
     identity = provider_identity(provider)
@@ -72,7 +89,12 @@ def embed_texts(provider: EmbeddingProvider, texts: Sequence[str]) -> list[list[
     if not normalized_texts:
         return []
     try:
-        vectors = provider.embed(normalized_texts)
+        if role == "documents" and callable(getattr(provider, "embed_documents", None)):
+            vectors = provider.embed_documents(normalized_texts)  # type: ignore[attr-defined]
+        elif role == "query" and callable(getattr(provider, "embed_query", None)):
+            vectors = [provider.embed_query(normalized_texts[0])]  # type: ignore[attr-defined]
+        else:
+            vectors = provider.embed(normalized_texts)
     except Exception as exc:
         raise EmbeddingProviderError(
             f"embedding provider failed: {identity.provider_id}/{identity.model_id}@{identity.model_revision}"

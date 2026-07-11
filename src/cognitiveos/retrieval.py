@@ -14,7 +14,7 @@ from .embedding_index import (
     default_embedding_index_path,
     search_embedding_index,
 )
-from .embeddings import EmbeddingError, EmbeddingProvider, embed_texts, provider_identity
+from .embeddings import EmbeddingError, EmbeddingProvider, embed_query, provider_identity
 from .indexer import VaultIndex, default_index_path
 from .models import ContextPack, SearchResult
 from .parser import parse_markdown_file
@@ -124,7 +124,7 @@ class RetrievalService:
         if self.embedding_provider is None:
             raise SemanticUnavailableError("embedding provider is unavailable")
         identity = provider_identity(self.embedding_provider)
-        query_vector = embed_texts(self.embedding_provider, [query])[0]
+        query_vector = embed_query(self.embedding_provider, query)
         current_checksums = self._eligible_note_checksums(note_type, status, domain, tag)
         return search_embedding_index(
             self.embedding_db_path,

@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `44` unit tests
+- `48` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -259,7 +259,8 @@ Phase 7: optional semantic retrieval foundation.
 
 Status: Design, provider boundary, deterministic chunker, separate derived
 storage, builder, status/build CLI, semantic modes, cosine search, RRF hybrid
-retrieval core, and optional local `sentence-transformers` adapter complete.
+retrieval core, optional local `sentence-transformers` adapter, approved
+multilingual model pin, and quality/performance evaluation harness complete.
 The adapter is development work for v0.3 and is not part of v0.2.
 
 Recommended tasks:
@@ -286,10 +287,9 @@ Recommended tasks:
 
 Next implementation gate:
 
-- privacy-review the first production local model adapter against an approved model
-- replace the deterministic pipeline fixture with a production-model quality
-  baseline while retaining it for regression tests
-- measure latency, index size, Recall@5, and MRR on an approved local model
+- execute the harness with the pinned model on approved hardware and retain the
+  deterministic pipeline fixture for regression tests
+- record latency, index size, Recall@5, and MRR from the approved local model
 - keep semantic retrieval disabled by default
 - pass the privacy, fallback, lexical non-regression, and source checksum gates
 - publish `v0.3.0` only after every gate above is complete; do not publish an

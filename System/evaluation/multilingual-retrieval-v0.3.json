@@ -1,0 +1,35 @@
+{
+  "version": "multilingual-retrieval-v0.1",
+  "cases": [
+    {
+      "query": "오프라인 개인 지식의 원본 보존",
+      "language": "ko",
+      "relevant_note_ids": ["semantic_local"]
+    },
+    {
+      "query": "durable local Markdown knowledge",
+      "language": "en",
+      "relevant_note_ids": ["semantic_local"]
+    },
+    {
+      "query": "read-only protocol tool interface",
+      "language": "en",
+      "relevant_note_ids": ["semantic_mcp"]
+    },
+    {
+      "query": "읽기 전용 MCP 도구 interface",
+      "language": "mixed",
+      "relevant_note_ids": ["semantic_mcp"]
+    },
+    {
+      "query": "프로젝트 구현 일정과 릴리스 검증",
+      "language": "ko",
+      "relevant_note_ids": ["semantic_roadmap"]
+    },
+    {
+      "query": "retrieval evaluation project roadmap",
+      "language": "en",
+      "relevant_note_ids": ["semantic_roadmap"]
+    }
+  ]
+}

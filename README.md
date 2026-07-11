@@ -2,8 +2,8 @@
 
 CognitiveOS is a Markdown-first, local-first, MCP-addressable PKM system for an Obsidian vault.
 
-The current implementation is a read-only v0.3 alpha development branch based
-on the published v0.2 retrieval release:
+The current implementation is unreleased read-only v0.3 development based on
+the published v0.2 retrieval release:
 
 - scans Markdown notes
 - parses frontmatter, headings, wikilinks, and Markdown links
@@ -31,11 +31,12 @@ Implemented:
 - read-only embedding index status CLI
 - opt-in `off|auto|required` semantic modes and RRF hybrid retrieval core
 - Korean, English, and mixed-language semantic evaluation fixtures
+- pinned multilingual evaluation model and quality/performance harness
 - writeback permission design
 
 Deferred:
 
-- production embedding model adapters
+- approved-model benchmark runs on supported hardware
 - graph database
 - local LLM calls
 - writeback tools
@@ -108,7 +109,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 44 tests
+Ran 48 tests
 OK
 ```
 
@@ -227,6 +228,11 @@ cognitiveos-embed --vault-root . --provider sentence-transformers \
 Add `--allow-model-download` only for an explicit, reviewed model acquisition.
 The adapter always disables remote model code. Search never initiates a build or
 download.
+
+The approved local evaluation baseline is
+`intfloat/multilingual-e5-small@fd1525a9fd15316a2d503bf26ab031a61d056e98`.
+Its selection rationale, fixed multilingual cases, evaluation CLI, metrics, and
+release gates are documented in `System/docs/model-evaluation-v0.3.md`.
 
 ## Release Policy
 

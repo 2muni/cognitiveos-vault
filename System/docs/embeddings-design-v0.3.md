@@ -179,6 +179,13 @@ model acquisition. `trust_remote_code` is always false and CPU is the default
 device. Tests use an injected model loader, so the suite neither installs a
 model runtime nor downloads model files.
 
+The first local evaluation baseline is pinned to
+`intfloat/multilingual-e5-small@fd1525a9fd15316a2d503bf26ab031a61d056e98`.
+The adapter applies the model-required `query: ` prefix to query embeddings and
+`passage: ` to indexed chunks. Generic providers retain the original `embed`
+fallback. The evaluation contract is maintained in
+`System/docs/model-evaluation-v0.3.md`.
+
 ## Retrieval Modes
 
 Future `search_notes` and `build_context_pack` inputs may add:
@@ -272,6 +279,7 @@ Implementation is complete only when all gates pass:
 - context token budgets and evidence paths remain valid after hybrid retrieval
 - checksum comparison proves source Markdown is unchanged
 - no network request occurs in default configuration or `semantic_mode=off`
+- evaluation reports exact model identity, Recall@5, MRR, latency, and index size
 
 The deterministic multilingual keyword fixture currently records Recall@5 =
 1.0 and MRR = 1.0 for three test queries. This verifies pipeline behavior only;

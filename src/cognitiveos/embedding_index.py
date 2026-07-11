@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .embedding_chunks import CHUNKER_VERSION, EmbeddingChunk, chunk_note
-from .embeddings import EmbeddingIdentity, EmbeddingProvider, embed_texts, provider_identity
+from .embeddings import EmbeddingIdentity, EmbeddingProvider, embed_documents, provider_identity
 from .parser import parse_markdown_file
 from .safety import resolve_vault_root
 from .scanner import iter_markdown_files
@@ -257,7 +257,7 @@ class EmbeddingIndexBuilder:
                 reused_count += 1
         for start in range(0, len(pending), self.batch_size):
             batch = pending[start : start + self.batch_size]
-            embedded = embed_texts(self.provider, [chunk.content for chunk in batch])
+            embedded = embed_documents(self.provider, [chunk.content for chunk in batch])
             vectors.update((chunk.chunk_id, vector) for chunk, vector in zip(batch, embedded, strict=True))
 
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

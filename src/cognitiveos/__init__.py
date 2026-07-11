@@ -7,6 +7,8 @@ from .embeddings import (
     EmbeddingProvider,
     EmbeddingProviderError,
     EmbeddingValidationError,
+    embed_documents,
+    embed_query,
     embed_texts,
     provider_identity,
 )
@@ -50,6 +52,8 @@ __all__ = [
     "DEFAULT_MAX_CHARS",
     "DEFAULT_OVERLAP_CHARS",
     "__version__",
+    "embed_documents",
+    "embed_query",
     "embed_texts",
     "chunk_note",
     "default_embedding_index_path",

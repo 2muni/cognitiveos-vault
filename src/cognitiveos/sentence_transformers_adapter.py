@@ -8,6 +8,9 @@ from .embeddings import EmbeddingConfigurationError
 
 ModelLoader = Callable[..., Any]
 
+APPROVED_MULTILINGUAL_MODEL_ID = "intfloat/multilingual-e5-small"
+APPROVED_MULTILINGUAL_MODEL_REVISION = "fd1525a9fd15316a2d503bf26ab031a61d056e98"
+
 
 class SentenceTransformersProvider:
     """Local sentence-transformers adapter with cache-only loading by default."""
@@ -52,6 +55,15 @@ class SentenceTransformersProvider:
         self.dimension = dimension
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        return self._encode(texts)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self._encode([self._prefix("passage", text) for text in texts])
+
+    def embed_query(self, query: str) -> list[float]:
+        return self._encode([self._prefix("query", query)])[0]
+
+    def _encode(self, texts: list[str]) -> list[list[float]]:
         output = self._model.encode(
             texts,
             convert_to_numpy=True,
@@ -62,6 +74,11 @@ class SentenceTransformersProvider:
             raise RuntimeError("sentence-transformers returned an unsupported embedding output")
         raw_vectors = output.tolist() if hasattr(output, "tolist") else output
         return [[float(value) for value in vector] for vector in raw_vectors]
+
+    def _prefix(self, role: str, text: str) -> str:
+        if self.model_id == APPROVED_MULTILINGUAL_MODEL_ID:
+            return f"{role}: {text}"
+        return text
 
 
 def create_sentence_transformers_provider(

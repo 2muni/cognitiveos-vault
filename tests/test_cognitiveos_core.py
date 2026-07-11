@@ -31,6 +31,8 @@ from cognitiveos.embeddings import (
     EmbeddingProvider,
     EmbeddingProviderError,
     EmbeddingValidationError,
+    embed_documents,
+    embed_query,
     embed_texts,
     provider_identity,
 )
@@ -42,12 +44,20 @@ from cognitiveos.embedding_index import (
     SemanticUnavailableError,
 )
 from cognitiveos.indexer import VaultIndex
+from cognitiveos.evaluation import (
+    EVALUATION_VERSION,
+    evaluate_retrieval,
+    load_evaluation_cases,
+    mean_reciprocal_rank,
+    recall_at_k,
+)
 from cognitiveos.mcp_server import handle_message
 from cognitiveos.models import SearchResult
 from cognitiveos.parser import parse_markdown_file
 from cognitiveos.retrieval import RetrievalService, estimate_tokens, select_diverse_results
 from cognitiveos.safety import safe_resolve_inside
 from cognitiveos.sentence_transformers_adapter import SentenceTransformersProvider
+from cognitiveos.sentence_transformers_adapter import APPROVED_MULTILINGUAL_MODEL_ID
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -245,6 +255,27 @@ class EmbeddingProviderTests(unittest.TestCase):
             },
         )
 
+    def test_approved_e5_model_uses_query_and_passage_prefixes(self) -> None:
+        encoded: list[list[str]] = []
+
+        class FakeModel:
+            def get_sentence_embedding_dimension(self) -> int:
+                return 2
+
+            def encode(self, texts: list[str], **_kwargs: object) -> list[list[float]]:
+                encoded.append(texts)
+                return [[0.6, 0.8] for _text in texts]
+
+        provider = SentenceTransformersProvider(
+            APPROVED_MULTILINGUAL_MODEL_ID,
+            "deadbeef",
+            model_loader=lambda _model_id, **_kwargs: FakeModel(),
+        )
+
+        self.assertEqual(embed_query(provider, "검색 질문"), [0.6, 0.8])
+        self.assertEqual(embed_documents(provider, ["노트 근거"]), [[0.6, 0.8]])
+        self.assertEqual(encoded, [["query: 검색 질문"], ["passage: 노트 근거"]])
+
     def test_sentence_transformers_download_requires_explicit_opt_in(self) -> None:
         load_calls: list[dict[str, object]] = []
 
@@ -296,6 +327,8 @@ class EmbeddingProviderTests(unittest.TestCase):
         self.assertTrue(all(len(vector) == 4 for vector in first))
         self.assertTrue(all(math.isclose(sum(value * value for value in vector), 1.0) for vector in first))
 
+
+class EmbeddingProviderValidationTests(unittest.TestCase):
     def test_empty_batch_does_not_call_provider(self) -> None:
         provider = DeterministicTestEmbeddingProvider()
 
@@ -339,6 +372,44 @@ class EmbeddingProviderTests(unittest.TestCase):
             with self.subTest(output=output):
                 with self.assertRaises(EmbeddingValidationError):
                     embed_texts(StaticEmbeddingProvider(output=output), ["text"])
+
+
+class EmbeddingEvaluationTests(CognitiveOSTestCase):
+    def test_metric_calculation(self) -> None:
+        rankings = [["a", "b"], ["x", "c"]]
+        relevant = [("a",), ("c",)]
+
+        self.assertEqual(recall_at_k(rankings, relevant, 1), 0.5)
+        self.assertEqual(recall_at_k(rankings, relevant, 2), 1.0)
+        self.assertEqual(mean_reciprocal_rank(rankings, relevant), 0.75)
+
+    def test_fixture_validation_and_end_to_end_report(self) -> None:
+        cases_path = Path(__file__).resolve().parents[1] / "System" / "evaluation" / (
+            "multilingual-retrieval-v0.3.json"
+        )
+        cases = load_evaluation_cases(cases_path)
+
+        self.assertEqual(len(cases), 6)
+        self.assertEqual({case.language for case in cases}, {"ko", "en", "mixed"})
+        report = evaluate_retrieval(
+            FIXTURES / "semantic_vault",
+            KeywordTestEmbeddingProvider(),
+            cases,
+            self.root / "evaluation",
+        )
+
+        self.assertEqual(report["evaluation_version"], EVALUATION_VERSION)
+        self.assertEqual(report["corpus"]["note_count"], 3)
+        self.assertGreater(report["corpus"]["embedding_index_bytes"], 0)
+        self.assertEqual(report["metrics"]["hybrid_recall_at_5"], 1.0)
+        self.assertEqual(report["metrics"]["hybrid_mrr"], 1.0)
+        self.assertTrue(report["gates"]["all_passed"])
+        self.assertEqual(len(report["cases"]), 6)
+
+    def test_invalid_fixture_is_rejected(self) -> None:
+        invalid = self.write_note("invalid.json", json.dumps({"version": "wrong", "cases": []}))
+        with self.assertRaisesRegex(ValueError, "fixture version"):
+            load_evaluation_cases(invalid)
 
 
 class EmbeddingChunkTests(CognitiveOSTestCase):

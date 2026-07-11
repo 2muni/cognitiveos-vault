@@ -552,3 +552,29 @@ Verification:
   remote-code rejection, device selection, normalized encoding, dimension
   discovery, and sanitized load failures
 - the automated suite passes 44 tests without the optional runtime installed
+
+### Decision: First Approved Multilingual Evaluation Model
+
+Decision:
+
+- approve `intfloat/multilingual-e5-small` for local evaluation only
+- pin revision `fd1525a9fd15316a2d503bf26ab031a61d056e98`
+- apply `query: ` to search queries and `passage: ` to indexed note chunks
+- keep generic providers backward compatible through the original `embed` method
+- add a fixed six-query Korean, English, and mixed-language evaluation fixture
+- report lexical/hybrid Recall@5, MRR, timing, and derived index size
+- require Recall@5 non-regression, hybrid Recall@5 `1.0`, and hybrid MRR `0.8`
+- do not treat model selection or fixture success as authorization to release v0.3
+
+Rationale:
+
+- the 384-dimensional MIT-licensed model is a lower-cost first CPU baseline than
+  the 768-dimensional E5 base and 1024-dimensional BGE-M3 candidates
+- the exact revision makes model identity and derived indexes reproducible
+- model-specific query/document roles are necessary for a valid E5 evaluation
+
+Verification:
+
+- role-aware embedding tests verify exact Korean query and passage prefixes
+- metric and end-to-end harness tests verify the fixed report and gate contract
+- the automated suite passes 48 tests without downloading a model

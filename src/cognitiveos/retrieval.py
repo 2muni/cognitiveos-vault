@@ -29,10 +29,12 @@ class RetrievalService:
         *,
         embedding_provider: EmbeddingProvider | None = None,
         embedding_db_path: str | Path | None = None,
+        semantic_unavailable_reason: str | None = None,
     ):
         self.vault_root = resolve_vault_root(vault_root)
         self.db_path = Path(db_path) if db_path else default_index_path(self.vault_root)
         self.embedding_provider = embedding_provider
+        self.semantic_unavailable_reason = semantic_unavailable_reason
         self.embedding_db_path = (
             Path(embedding_db_path)
             if embedding_db_path
@@ -122,7 +124,9 @@ class RetrievalService:
         require_complete: bool,
     ) -> list[SemanticCandidate]:
         if self.embedding_provider is None:
-            raise SemanticUnavailableError("embedding provider is unavailable")
+            raise SemanticUnavailableError(
+                self.semantic_unavailable_reason or "embedding provider is unavailable"
+            )
         identity = provider_identity(self.embedding_provider)
         query_vector = embed_query(self.embedding_provider, query)
         current_checksums = self._eligible_note_checksums(note_type, status, domain, tag)

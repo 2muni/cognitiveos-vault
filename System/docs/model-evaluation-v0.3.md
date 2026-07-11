@@ -133,3 +133,8 @@ The initial `sentence-transformers 5.6.0` attempt was rejected because current
 Intel macOS PyTorch wheels cannot satisfy its runtime requirements on Python
 3.13 or 3.14. The Python 3.12 platform-specific dependency path is therefore a
 tested portability requirement, not an optimization.
+
+The pinned cache and fixture index were also verified through the actual MCP
+launcher and search CLI with both Hugging Face and Transformers offline modes
+forced. An MCP `semantic_mode=required` query returned `semantic_local` first
+with `semantic_used=true`; the CLI returned the same top result and diagnostics.

@@ -1,7 +1,14 @@
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$pythonCandidates = @(
+$pythonCandidates = @()
+if ($env:COGNITIVEOS_PYTHON) {
+  $pythonCandidates += $env:COGNITIVEOS_PYTHON
+}
+if ($env:COGNITIVEOS_SEMANTIC_RUNTIME -eq "local") {
+  $pythonCandidates += (Join-Path $repoRoot ".venv-embeddings312\Scripts\python.exe")
+}
+$pythonCandidates += @(
   "python",
   "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
   "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",

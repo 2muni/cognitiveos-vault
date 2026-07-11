@@ -11,6 +11,7 @@ from .indexer import VaultIndex, default_index_path
 from .embedding_index import SemanticUnavailableError
 from .retrieval import RetrievalService, search_result_to_dict
 from .sentence_transformers_adapter import create_sentence_transformers_provider
+from .runtime import build_runtime_service
 
 
 EmbeddingProviderFactory = Callable[[str, str, bool, str], EmbeddingProvider]
@@ -47,7 +48,7 @@ def main_search() -> None:
     parser.add_argument("--semantic-mode", choices=("off", "auto", "required"), default="off")
     parser.add_argument("--format", choices=("text", "json"), default="json", help="Output format")
     args = parser.parse_args()
-    service = RetrievalService(args.vault_root, args.db)
+    service = build_runtime_service(args.vault_root, args.db)
     try:
         results = service.search_notes(
             args.query,

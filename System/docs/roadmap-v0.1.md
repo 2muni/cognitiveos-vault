@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `48` unit tests
+- `52` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -260,7 +260,8 @@ Phase 7: optional semantic retrieval foundation.
 Status: Design, provider boundary, deterministic chunker, separate derived
 storage, builder, status/build CLI, semantic modes, cosine search, RRF hybrid
 retrieval core, optional local `sentence-transformers` adapter, approved
-multilingual model pin, and quality/performance evaluation harness complete.
+multilingual model pin, quality/performance evaluation harness, and explicit
+cache-only CLI/MCP runtime injection complete.
 The adapter is development work for v0.3 and is not part of v0.2.
 
 Recommended tasks:
@@ -290,6 +291,7 @@ Next implementation gate:
 - Intel macOS baseline complete with the pinned model; retain the deterministic
   pipeline fixture for regression tests
 - recorded Intel latency, index size, Recall@5, MRR, and forced-offline repeat
+- actual MCP launcher and search CLI required-mode offline smoke tests complete
 - run the same pinned-model harness on remaining supported hardware later
 - keep semantic retrieval disabled by default
 - pass the privacy, fallback, lexical non-regression, and source checksum gates

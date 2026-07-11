@@ -3,7 +3,11 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if [[ -x "$repo_root/.venv/bin/python" ]]; then
+if [[ -n "${COGNITIVEOS_PYTHON:-}" && -x "$COGNITIVEOS_PYTHON" ]]; then
+  python_bin="$COGNITIVEOS_PYTHON"
+elif [[ "${COGNITIVEOS_SEMANTIC_RUNTIME:-off}" == "local" && -x "$repo_root/.venv-embeddings312/bin/python" ]]; then
+  python_bin="$repo_root/.venv-embeddings312/bin/python"
+elif [[ -x "$repo_root/.venv/bin/python" ]]; then
   python_bin="$repo_root/.venv/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
   python_bin="$(command -v python3)"

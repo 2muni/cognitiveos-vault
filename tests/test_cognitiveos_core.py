@@ -18,6 +18,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import cognitiveos.cli as cognitiveos_cli
+import cognitiveos.runtime as cognitiveos_runtime
 from cognitiveos.cli import main_embed, main_index, main_search
 from cognitiveos.embedding_chunks import (
     CHUNKER_VERSION,
@@ -55,6 +56,11 @@ from cognitiveos.mcp_server import handle_message
 from cognitiveos.models import SearchResult
 from cognitiveos.parser import parse_markdown_file
 from cognitiveos.retrieval import RetrievalService, estimate_tokens, select_diverse_results
+from cognitiveos.runtime import (
+    SemanticRuntimeConfig,
+    build_runtime_service,
+    load_semantic_runtime_config,
+)
 from cognitiveos.safety import safe_resolve_inside
 from cognitiveos.sentence_transformers_adapter import SentenceTransformersProvider
 from cognitiveos.sentence_transformers_adapter import APPROVED_MULTILINGUAL_MODEL_ID
@@ -410,6 +416,86 @@ class EmbeddingEvaluationTests(CognitiveOSTestCase):
         invalid = self.write_note("invalid.json", json.dumps({"version": "wrong", "cases": []}))
         with self.assertRaisesRegex(ValueError, "fixture version"):
             load_evaluation_cases(invalid)
+
+
+class SemanticRuntimeConfigTests(CognitiveOSTestCase):
+    def test_runtime_is_off_by_default_without_loading_provider(self) -> None:
+        config = load_semantic_runtime_config({})
+
+        self.assertEqual(config, SemanticRuntimeConfig())
+        with patch.object(cognitiveos_runtime, "create_runtime_provider") as create_provider:
+            service = build_runtime_service(self.root, self.db_path, environ={})
+        create_provider.assert_not_called()
+        self.assertIsNone(service.embedding_provider)
+
+    def test_local_runtime_requires_and_preserves_exact_identity(self) -> None:
+        values = {
+            "COGNITIVEOS_SEMANTIC_RUNTIME": "local",
+            "COGNITIVEOS_EMBEDDING_PROVIDER": "sentence-transformers",
+            "COGNITIVEOS_EMBEDDING_MODEL": "intfloat/multilingual-e5-small",
+            "COGNITIVEOS_EMBEDDING_REVISION": "deadbeef",
+            "COGNITIVEOS_EMBEDDING_DEVICE": "cpu",
+            "COGNITIVEOS_EMBEDDING_DB_PATH": "/tmp/embeddings.sqlite3",
+        }
+
+        config = load_semantic_runtime_config(values)
+
+        self.assertTrue(config.enabled)
+        self.assertEqual(config.model_revision, "deadbeef")
+        self.assertEqual(config.embedding_db_path, "/tmp/embeddings.sqlite3")
+        with self.assertRaisesRegex(ValueError, "COGNITIVEOS_EMBEDDING_MODEL"):
+            load_semantic_runtime_config(
+                {
+                    "COGNITIVEOS_SEMANTIC_RUNTIME": "local",
+                    "COGNITIVEOS_EMBEDDING_PROVIDER": "sentence-transformers",
+                }
+            )
+        with self.assertRaisesRegex(ValueError, "must be off or local"):
+            load_semantic_runtime_config({"COGNITIVEOS_SEMANTIC_RUNTIME": "automatic"})
+
+    def test_runtime_load_failure_keeps_lexical_and_required_reports_unavailable(self) -> None:
+        self.write_note("note.md", "# Fallback keyword\n\nDurable lexical evidence.")
+        self.index()
+        values = {
+            "COGNITIVEOS_SEMANTIC_RUNTIME": "local",
+            "COGNITIVEOS_EMBEDDING_PROVIDER": "sentence-transformers",
+            "COGNITIVEOS_EMBEDDING_MODEL": "missing/model",
+            "COGNITIVEOS_EMBEDDING_REVISION": "deadbeef",
+        }
+        stderr = io.StringIO()
+        with patch.object(
+            cognitiveos_runtime,
+            "create_runtime_provider",
+            side_effect=EmbeddingConfigurationError("private backend detail"),
+        ), redirect_stderr(stderr):
+            service = build_runtime_service(self.root, self.db_path, environ=values)
+
+        self.assertEqual(service.search_notes("Fallback keyword", semantic_mode="auto")[0].title, "Fallback keyword")
+        with self.assertRaisesRegex(SemanticUnavailableError, "configuration or model loading failed"):
+            service.search_notes("Fallback keyword", semantic_mode="required")
+        self.assertNotIn("private backend detail", stderr.getvalue())
+
+    def test_runtime_provider_enables_required_semantic_search(self) -> None:
+        fixture_root = FIXTURES / "semantic_vault"
+        lexical_db = self.root / "lexical.sqlite3"
+        embedding_db = self.root / "embeddings.sqlite3"
+        with VaultIndex(lexical_db) as index:
+            index.index_vault(fixture_root)
+        provider = KeywordTestEmbeddingProvider()
+        EmbeddingIndexBuilder(fixture_root, provider, embedding_db).build()
+        values = {
+            "COGNITIVEOS_SEMANTIC_RUNTIME": "local",
+            "COGNITIVEOS_EMBEDDING_PROVIDER": "sentence-transformers",
+            "COGNITIVEOS_EMBEDDING_MODEL": "intfloat/multilingual-e5-small",
+            "COGNITIVEOS_EMBEDDING_REVISION": "deadbeef",
+            "COGNITIVEOS_EMBEDDING_DB_PATH": str(embedding_db),
+        }
+        with patch.object(cognitiveos_runtime, "create_runtime_provider", return_value=provider):
+            service = build_runtime_service(fixture_root, lexical_db, environ=values)
+
+        results = service.search_notes("오프라인 지식 보관", semantic_mode="required")
+        self.assertEqual(results[0].note_id, "semantic_local")
+        self.assertTrue(results[0].retrieval["semantic_used"])
 
 
 class EmbeddingChunkTests(CognitiveOSTestCase):

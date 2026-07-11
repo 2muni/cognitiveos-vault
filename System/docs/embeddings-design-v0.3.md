@@ -186,6 +186,20 @@ The adapter applies the model-required `query: ` prefix to query embeddings and
 fallback. The evaluation contract is maintained in
 `System/docs/model-evaluation-v0.3.md`.
 
+The production read path uses an explicit environment-only runtime boundary:
+
+- `COGNITIVEOS_SEMANTIC_RUNTIME=local` activates provider loading
+- provider, exact model, and exact revision variables are required together
+- the runtime always uses cache-only loading and cannot download a model
+- the embedding database may be selected with `COGNITIVEOS_EMBEDDING_DB_PATH`
+- default `off` does not call the provider factory
+- configuration or model load failure preserves MCP startup and lexical search
+- `auto` falls back while `required` reports `semantic_unavailable`
+
+Search CLI and both MCP server implementations use the same loader. Device
+launchers may select a compatible Python with `COGNITIVEOS_PYTHON`; the macOS
+launcher automatically selects `.venv-embeddings312` for the Intel local runtime.
+
 ## Retrieval Modes
 
 Future `search_notes` and `build_context_pack` inputs may add:

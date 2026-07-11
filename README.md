@@ -109,7 +109,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 48 tests
+Ran 52 tests
 OK
 ```
 
@@ -238,6 +238,26 @@ The approved local evaluation baseline is
 `intfloat/multilingual-e5-small@fd1525a9fd15316a2d503bf26ab031a61d056e98`.
 Its selection rationale, fixed multilingual cases, evaluation CLI, metrics, and
 release gates are documented in `System/docs/model-evaluation-v0.3.md`.
+
+### Enable Local Semantic Runtime
+
+The search CLI and MCP server remain lexical-only unless the local runtime is
+explicitly enabled. After building a compatible embedding index, set:
+
+```bash
+export COGNITIVEOS_SEMANTIC_RUNTIME=local
+export COGNITIVEOS_EMBEDDING_PROVIDER=sentence-transformers
+export COGNITIVEOS_EMBEDDING_MODEL=intfloat/multilingual-e5-small
+export COGNITIVEOS_EMBEDDING_REVISION=fd1525a9fd15316a2d503bf26ab031a61d056e98
+export COGNITIVEOS_EMBEDDING_DEVICE=cpu
+```
+
+`scripts/run-cognitiveos-mcp.sh` then selects `.venv-embeddings312` on Intel
+macOS. `COGNITIVEOS_PYTHON` may explicitly select another compatible runtime.
+No runtime setting permits model download: acquisition remains confined to the
+explicit build/evaluation commands. If configuration or cache loading fails,
+MCP still starts, `auto` returns lexical results, and `required` returns
+`semantic_unavailable`. Do not commit active device-specific environment values.
 
 ## Release Policy
 

@@ -599,3 +599,27 @@ Interpretation:
   are operational on this Intel Mac
 - the tiny fixture validates behavior but is not sufficient for broad model
   quality claims or production-scale latency estimates
+
+### Implementation Checkpoint: Explicit Semantic Runtime Injection
+
+Decision:
+
+- keep semantic runtime `off` unless `COGNITIVEOS_SEMANTIC_RUNTIME=local`
+- require provider, model, and immutable revision environment values together
+- forbid model download in search and MCP runtime paths
+- share one runtime loader between search CLI and basic/FastMCP servers
+- preserve lexical startup and `auto` fallback when provider configuration or
+  local cache loading fails; keep `required` as `semantic_unavailable`
+- let launchers select a compatible interpreter through `COGNITIVEOS_PYTHON`
+- automatically prefer `.venv-embeddings312` for Intel macOS local semantic mode
+- do not commit an active device-specific semantic configuration
+
+Verification:
+
+- tests cover default-off non-loading, exact configuration, partial and invalid
+  settings, sanitized load failure, lexical fallback, required failure, and
+  successful provider injection
+- actual offline MCP launcher required-mode search returns the expected Korean
+  note first with `semantic_used=true`
+- actual offline search CLI returns the same result and JSON diagnostics
+- the automated suite passes 52 tests

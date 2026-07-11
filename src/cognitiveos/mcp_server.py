@@ -8,6 +8,7 @@ from typing import Any
 
 from .embedding_index import SemanticUnavailableError
 from .retrieval import RetrievalService, context_pack_to_dict, search_result_to_dict
+from .runtime import build_runtime_service
 
 PROTOCOL_VERSION = "2025-11-25"
 
@@ -21,7 +22,7 @@ class ToolInputError(ValueError):
 def build_service() -> RetrievalService:
     vault_root = os.environ.get("COGNITIVEOS_VAULT_ROOT", ".")
     db_path = os.environ.get("COGNITIVEOS_DB_PATH")
-    return RetrievalService(vault_root, db_path)
+    return build_runtime_service(vault_root, db_path)
 
 
 def main() -> None:
@@ -34,10 +35,10 @@ def main() -> None:
     except ImportError as exc:
         if os.environ.get("COGNITIVEOS_REQUIRE_MCP_SDK") == "1":
             raise SystemExit("Install the MCP extra first: pip install -e .[mcp]") from exc
-        run_basic_stdio_server(RetrievalService(args.vault_root, args.db))
+        run_basic_stdio_server(build_runtime_service(args.vault_root, args.db))
         return
 
-    service = RetrievalService(args.vault_root, args.db)
+    service = build_runtime_service(args.vault_root, args.db)
     mcp = FastMCP("cognitiveos")
 
     @mcp.tool()

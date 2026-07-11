@@ -578,3 +578,24 @@ Verification:
 - role-aware embedding tests verify exact Korean query and passage prefixes
 - metric and end-to-end harness tests verify the fixed report and gate contract
 - the automated suite passes 48 tests without downloading a model
+
+### Verification: Approved Model on Intel macOS
+
+Result:
+
+- use Python 3.12.13 because current Intel macOS PyTorch wheels do not support
+  the project's Python 3.14 default or the attempted Python 3.13 runtime
+- resolve `sentence-transformers 3.4.1`, PyTorch 2.2.2, and NumPy 1.26.4
+- download only the approved E5 revision through explicit opt-in
+- evaluate six tracked Korean, English, and mixed queries against three fixture notes
+- record hybrid Recall@5 `1.0`, hybrid MRR `1.0`, and all gates passing
+- repeat with Hugging Face and Transformers offline modes forced; quality results match
+- record warm local hybrid query median `49.77 ms`, p95 `98.53 ms`, and a
+  45,056-byte three-chunk derived index
+
+Interpretation:
+
+- the adapter, revision pin, prefix roles, cache-only path, and evaluation gates
+  are operational on this Intel Mac
+- the tiny fixture validates behavior but is not sufficient for broad model
+  quality claims or production-scale latency estimates

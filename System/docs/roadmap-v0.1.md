@@ -287,9 +287,10 @@ Recommended tasks:
 
 Next implementation gate:
 
-- execute the harness with the pinned model on approved hardware and retain the
-  deterministic pipeline fixture for regression tests
-- record latency, index size, Recall@5, and MRR from the approved local model
+- Intel macOS baseline complete with the pinned model; retain the deterministic
+  pipeline fixture for regression tests
+- recorded Intel latency, index size, Recall@5, MRR, and forced-offline repeat
+- run the same pinned-model harness on remaining supported hardware later
 - keep semantic retrieval disabled by default
 - pass the privacy, fallback, lexical non-regression, and source checksum gates
 - publish `v0.3.0` only after every gate above is complete; do not publish an

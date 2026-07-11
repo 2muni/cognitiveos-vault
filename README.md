@@ -211,11 +211,16 @@ Inspect local embedding status without creating an index or calling a provider:
 PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_embed; main_embed()" --status --format json
 ```
 
-Install the optional local runtime only on a device approved for model storage:
+Install the optional local runtime only on a device approved for model storage.
+On Intel macOS, use the supported Python 3.12 evaluation environment:
 
 ```bash
-uv pip install -e '.[local-embeddings]'
+uv venv .venv-embeddings312 --python 3.12
+uv pip install --python .venv-embeddings312/bin/python -e '.[local-embeddings]'
 ```
+
+Other supported platforms may install the same extra into their normal project
+environment. See `System/docs/model-evaluation-v0.3.md` for the tested matrix.
 
 Building requires an exact model id and immutable revision. The command is
 cache-only by default and does not download model files:

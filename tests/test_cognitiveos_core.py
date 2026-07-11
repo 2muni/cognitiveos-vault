@@ -843,6 +843,8 @@ class IndexTests(CognitiveOSTestCase):
     def test_skips_local_runtime_directories(self) -> None:
         self.write_note("note.md", "# Durable note")
         self.write_note(".venv/lib/package/LICENSE.md", "# Package license")
+        self.write_note(".venv-embeddings/lib/package/README.md", "# Runtime readme")
+        self.write_note(".venv-embeddings312/lib/package/NOTICE.md", "# Runtime notice")
         self.write_note(".pytest_cache/README.md", "# Pytest cache")
 
         self.assertEqual(self.index(), 1)

@@ -80,7 +80,7 @@ Current verification snapshot:
 
 | Check | Result |
 | --- | --- |
-| Unit tests | Pass, `52` tests |
+| Unit tests | Pass, `53` tests |
 | Actual vault index | Pass; note count is device-dependent |
 | MCP `initialize` | Pass, server name `cognitiveos` |
 | MCP `tools/list` | Pass, `9` tools |
@@ -95,7 +95,7 @@ Current verification command:
 Expected:
 
 ```text
-Ran 52 tests
+Ran 53 tests
 OK
 ```
 
@@ -373,4 +373,6 @@ reviewed release and is not folded into this tag merely to advance the version.
 
 ## Decision
 
-`v0.1.0` is the published stable tag and GitHub Release for the current read-only MVP. The published tag must not be moved.
+`v0.1.0` is the historical first stable read-only MVP tag and must not be moved.
+`v0.2.0` is the latest published stable release. Current v0.3 readiness is
+tracked in `System/docs/release-v0.3.md`.

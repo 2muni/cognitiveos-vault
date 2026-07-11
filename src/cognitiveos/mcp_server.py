@@ -6,6 +6,7 @@ import os
 import sys
 from typing import Any
 
+from . import __version__
 from .embedding_index import SemanticUnavailableError
 from .retrieval import RetrievalService, context_pack_to_dict, search_result_to_dict
 from .runtime import build_runtime_service
@@ -163,7 +164,7 @@ def handle_message(service: RetrievalService, message: dict[str, Any]) -> dict[s
                 "serverInfo": {
                     "name": "cognitiveos",
                     "title": "CognitiveOS Read-only PKM",
-                    "version": "0.3.0a1",
+                    "version": __version__,
                     "description": "Read-only search and retrieval tools for a local Obsidian Markdown vault.",
                 },
                 "instructions": "Read-only vault tools. This server never writes to source Markdown files.",

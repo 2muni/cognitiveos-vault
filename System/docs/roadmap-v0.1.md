@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `52` unit tests
+- `53` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -253,7 +253,7 @@ Current smoke verification:
 - Source summary is extractive, not abstractive.
 - Codex UI-level MCP discovery still requires user-side VS Code/Codex sign-in and visual confirmation.
 
-## Next Recommended Phase
+## Current Implementation Phase
 
 Phase 7: optional semantic retrieval foundation.
 
@@ -286,7 +286,7 @@ Recommended tasks:
   the deterministic pipeline evaluation
 - revisit writeback only after the read-only retrieval boundary remains stable
 
-Next implementation gate:
+Completed implementation gates:
 
 - Intel macOS baseline complete with the pinned model; retain the deterministic
   pipeline fixture for regression tests
@@ -297,8 +297,10 @@ Next implementation gate:
 - run the same pinned-model harness on remaining supported hardware later
 - keep semantic retrieval disabled by default
 - pass the privacy, fallback, lexical non-regression, and source checksum gates
-- publish `v0.3.0` only after every gate above is complete; do not publish an
-  intermediate alpha GitHub Release
+
+Remaining release operations are tracked separately in
+`System/docs/release-v0.3.md`. Do not publish an intermediate alpha GitHub
+Release; the next public v0.3 artifact is the final approved stable release.
 
 Release policy:
 
@@ -308,6 +310,6 @@ Release policy:
 
 Recommended model:
 
-- `Sol / medium` for Intel Mac verification and v0.2 retrieval work
+- `Sol / medium` for v0.3 integration and release stabilization
 - `Sol / high` for writeback, schema, authorization, or security work
 - `Sol / ultra` only for high-impact migrations or permission-boundary changes

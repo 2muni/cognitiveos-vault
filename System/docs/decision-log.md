@@ -642,3 +642,30 @@ Decision:
 - retain the derived index locally under `.pkm-index`; never commit it
 - use the private-note aggregate checksum as the source-safety release gate
 - defer other-device baselines as previously scoped
+
+### v0.3 Stabilization Audit
+
+Finding:
+
+- all planned read-only semantic features are implemented
+- MCP duplicated the package development version as a literal string
+- the embeddings document still described implemented modes and model
+  evaluation as future or deferred
+- the historical v0.1 release document did not clearly separate v0.3 feature
+  completion from final release operations
+
+Decision:
+
+- source MCP server identity from the package `__version__`
+- assert pyproject, package, and MCP versions match
+- assert exactly 9 MCP tools and no approved writeback tool names
+- mark the v0.3 implementation feature-complete
+- create `System/docs/release-v0.3.md` as the canonical readiness checklist
+- keep `0.3.0a1` until stacked branches are integrated and a fresh checkout passes
+- require explicit approval before version bump, tag, push, or GitHub Release
+
+Verification:
+
+- the stabilization suite passes 53 tests in the default environment
+- release blockers are operational integration and publication steps, not
+  missing semantic feature implementation

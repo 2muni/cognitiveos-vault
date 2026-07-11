@@ -109,7 +109,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 52 tests
+Ran 53 tests
 OK
 ```
 
@@ -265,6 +265,13 @@ The v0.1 release checklist, version policy, and tag policy are maintained in:
 
 ```text
 System/docs/release-v0.1.md
+```
+
+The current v0.3 feature-completeness audit and remaining release operations are
+maintained in:
+
+```text
+System/docs/release-v0.3.md
 ```
 
 It also defines the hotfix flow and version bump procedure.

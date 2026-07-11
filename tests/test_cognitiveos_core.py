@@ -8,6 +8,7 @@ import sqlite3
 import struct
 import sys
 import tempfile
+import tomllib
 import unittest
 from contextlib import closing
 from contextlib import redirect_stderr
@@ -19,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import cognitiveos.cli as cognitiveos_cli
 import cognitiveos.runtime as cognitiveos_runtime
+from cognitiveos import __version__
 from cognitiveos.cli import main_embed, main_index, main_search
 from cognitiveos.embedding_chunks import (
     CHUNKER_VERSION,
@@ -1264,11 +1266,17 @@ Read-only MCP tools expose Markdown search.
             },
         )
         self.assertEqual(init_response["result"]["serverInfo"]["name"], "cognitiveos")
-        self.assertEqual(init_response["result"]["serverInfo"]["version"], "0.3.0a1")
+        self.assertEqual(init_response["result"]["serverInfo"]["version"], __version__)
         self.assertIn("tools", init_response["result"]["capabilities"])
 
         list_response = handle_message(service, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         tool_names = {tool["name"] for tool in list_response["result"]["tools"]}
+        self.assertEqual(len(tool_names), 9)
+        self.assertTrue(
+            tool_names.isdisjoint(
+                {"create_draft_note", "update_properties", "append_to_daily", "apply_patch_to_note"}
+            )
+        )
         self.assertIn("search_notes", tool_names)
         self.assertIn("suggest_links", tool_names)
         self.assertIn("summarize_source", tool_names)
@@ -1295,6 +1303,19 @@ Read-only MCP tools expose Markdown search.
         )
         self.assertFalse(call_response["result"]["isError"])
         self.assertIn("mcp_concept", call_response["result"]["content"][0]["text"])
+
+    def test_package_pyproject_and_mcp_versions_match(self) -> None:
+        pyproject = tomllib.loads(
+            (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+        )
+        service = RetrievalService(self.root, self.db_path)
+        initialized = handle_message(
+            service,
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        )
+
+        self.assertEqual(pyproject["project"]["version"], __version__)
+        self.assertEqual(initialized["result"]["serverInfo"]["version"], __version__)
 
     def test_basic_mcp_tool_argument_validation(self) -> None:
         self.write_note(

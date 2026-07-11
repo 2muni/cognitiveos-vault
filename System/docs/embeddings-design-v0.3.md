@@ -10,8 +10,8 @@ the source of truth.
 Design status: complete. Implementation status: provider boundary and
 deterministic chunking, separate SQLite storage, incremental/full builder, and
 status/build CLI, semantic modes, cosine candidate search, RRF hybrid retrieval,
-and the first optional local adapter complete; production-model evaluation is
-deferred.
+the first optional local adapter, production-model evaluation, explicit runtime
+injection, and actual-vault baseline complete.
 
 ## Invariants
 
@@ -202,7 +202,7 @@ launcher automatically selects `.venv-embeddings312` for the Intel local runtime
 
 ## Retrieval Modes
 
-Future `search_notes` and `build_context_pack` inputs may add:
+Implemented `search_notes` and `build_context_pack` inputs include:
 
 ```json
 {

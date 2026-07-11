@@ -6,7 +6,8 @@ import os
 import sys
 from typing import Any
 
-from .retrieval import RetrievalService, context_pack_to_dict
+from .embedding_index import SemanticUnavailableError
+from .retrieval import RetrievalService, context_pack_to_dict, search_result_to_dict
 
 PROTOCOL_VERSION = "2025-11-25"
 
@@ -47,11 +48,12 @@ def main() -> None:
         status: str | None = None,
         domain: str | None = None,
         tag: str | None = None,
+        semantic_mode: str = "off",
     ) -> list[dict[str, Any]]:
         """Search indexed Markdown notes."""
         query = require_text("query", query)
         return [
-            result.__dict__
+            search_result_to_dict(result)
             for result in service.search_notes(
                 query,
                 note_type=type,
@@ -59,6 +61,7 @@ def main() -> None:
                 status=status,
                 domain=domain,
                 tag=tag,
+                semantic_mode=normalize_semantic_mode(semantic_mode),
             )
         ]
 
@@ -104,7 +107,12 @@ def main() -> None:
         return service.propose_moc(query, normalize_limit(limit, default=10, maximum=50))
 
     @mcp.tool()
-    def build_context_pack(query: str, limit: int = 5, token_budget: int = 4000) -> dict[str, Any]:
+    def build_context_pack(
+        query: str,
+        limit: int = 5,
+        token_budget: int = 4000,
+        semantic_mode: str = "off",
+    ) -> dict[str, Any]:
         """Build a compact evidence pack for a query."""
         query = require_text("query", query)
         return context_pack_to_dict(
@@ -112,6 +120,7 @@ def main() -> None:
                 query,
                 normalize_limit(limit, default=5, maximum=20),
                 normalize_token_budget(token_budget),
+                normalize_semantic_mode(semantic_mode),
             )
         )
 
@@ -153,7 +162,7 @@ def handle_message(service: RetrievalService, message: dict[str, Any]) -> dict[s
                 "serverInfo": {
                     "name": "cognitiveos",
                     "title": "CognitiveOS Read-only PKM",
-                    "version": "0.2.0",
+                    "version": "0.3.0a1",
                     "description": "Read-only search and retrieval tools for a local Obsidian Markdown vault.",
                 },
                 "instructions": "Read-only vault tools. This server never writes to source Markdown files.",
@@ -184,7 +193,7 @@ def call_tool(
         if name == "search_notes":
             query = require_text("query", arguments.get("query"))
             result = [
-                item.__dict__
+                search_result_to_dict(item)
                 for item in service.search_notes(
                     query=query,
                     note_type=optional_text(arguments.get("type")),
@@ -192,6 +201,7 @@ def call_tool(
                     status=optional_text(arguments.get("status")),
                     domain=optional_text(arguments.get("domain")),
                     tag=optional_text(arguments.get("tag")),
+                    semantic_mode=normalize_semantic_mode(arguments.get("semantic_mode")),
                 )
             ]
         elif name == "read_note":
@@ -225,6 +235,7 @@ def call_tool(
                     query=require_text("query", arguments.get("query")),
                     limit=normalize_limit(arguments.get("limit"), default=5, maximum=20),
                     token_budget=normalize_token_budget(arguments.get("token_budget")),
+                    semantic_mode=normalize_semantic_mode(arguments.get("semantic_mode")),
                 )
             )
         else:
@@ -240,6 +251,8 @@ def call_tool(
         )
     except ToolInputError as exc:
         return tool_error_response(request_id, exc.code, str(exc))
+    except SemanticUnavailableError as exc:
+        return tool_error_response(request_id, "semantic_unavailable", str(exc))
     except KeyError as exc:
         return tool_error_response(request_id, "not_found", str(exc))
     except ValueError as exc:
@@ -262,6 +275,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                     "status": {"type": "string"},
                     "domain": {"type": "string"},
                     "tag": {"type": "string"},
+                    "semantic_mode": {"type": "string", "enum": ["off", "auto", "required"]},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 50},
                 },
                 "required": ["query"],
@@ -367,6 +381,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                     "query": {"type": "string"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 20},
                     "token_budget": {"type": "integer", "minimum": 512, "maximum": 32768},
+                    "semantic_mode": {"type": "string", "enum": ["off", "auto", "required"]},
                 },
                 "required": ["query"],
                 "additionalProperties": False,
@@ -412,6 +427,14 @@ def normalize_token_budget(value: Any) -> int:
         raise ToolInputError("invalid_argument", "token_budget must be an integer")
     if not 512 <= value <= 32768:
         raise ToolInputError("invalid_argument", "token_budget must be between 512 and 32768")
+    return value
+
+
+def normalize_semantic_mode(value: Any) -> str:
+    if value is None:
+        return "off"
+    if not isinstance(value, str) or value not in {"off", "auto", "required"}:
+        raise ToolInputError("invalid_argument", "semantic_mode must be off, auto, or required")
     return value
 
 

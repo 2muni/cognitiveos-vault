@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `37` unit tests
+- `41` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -245,7 +245,7 @@ Current smoke verification:
 
 ## Current Known Limitations
 
-- No vector search yet.
+- No production embedding model adapter is enabled yet.
 - No graph database yet.
 - No local LLM call path yet.
 - No writeback tools are enabled.
@@ -255,11 +255,11 @@ Current smoke verification:
 
 ## Next Recommended Phase
 
-Phase 7: optional semantic retrieval design.
+Phase 7: optional semantic retrieval foundation.
 
 Status: Design, provider boundary, deterministic chunker, separate derived
-storage, builder, and status/build CLI complete. Production adapters and hybrid
-retrieval are not part of v0.2.
+storage, builder, status/build CLI, semantic modes, cosine search, and RRF hybrid
+retrieval core complete. Production adapters are not part of v0.2.
 
 Recommended tasks:
 
@@ -279,21 +279,24 @@ Recommended tasks:
 - SQLite/FTS and metadata retrieval remain the default path
 - missing, stale, incompatible, and corrupt embedding indexes have explicit
   `off | auto | required` behavior
+- Korean, English, and mixed-language test fixtures record Recall@5 and MRR for
+  the deterministic pipeline evaluation
 - revisit writeback only after the read-only retrieval boundary remains stable
 
 Next implementation gate:
 
 - implement and privacy-review the first production local model adapter
-- add fixed Korean, English, and mixed-language retrieval evaluation fixtures
-- implement `semantic_mode=off|auto|required` and RRF hybrid ranking
+- replace the deterministic pipeline fixture with a production-model quality
+  baseline while retaining it for regression tests
+- measure latency, index size, Recall@5, and MRR on an approved local model
 - keep semantic retrieval disabled by default
 - pass the privacy, fallback, lexical non-regression, and source checksum gates
 
 Release policy:
 
 - `System/docs/release-v0.1.md`
-- current package version: `0.2.0`
-- first stable tag and public GitHub Release: `v0.1.0`
+- current development package version: `0.3.0a1`
+- latest published stable tag and GitHub Release: `v0.2.0`
 
 Recommended model:
 

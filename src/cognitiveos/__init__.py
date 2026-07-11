@@ -22,9 +22,12 @@ from .embedding_index import (
     EmbeddingBuildResult,
     EmbeddingIndex,
     EmbeddingIndexBuilder,
+    SemanticCandidate,
+    SemanticUnavailableError,
     default_embedding_index_path,
     embedding_index_status,
     pack_vector,
+    search_embedding_index,
     unpack_vector,
 )
 
@@ -34,6 +37,8 @@ __all__ = [
     "EmbeddingBuildResult",
     "EmbeddingIndex",
     "EmbeddingIndexBuilder",
+    "SemanticCandidate",
+    "SemanticUnavailableError",
     "EmbeddingError",
     "EmbeddingIdentity",
     "EmbeddingProvider",
@@ -49,8 +54,9 @@ __all__ = [
     "provider_identity",
     "embedding_index_status",
     "pack_vector",
+    "search_embedding_index",
     "stable_chunk_id",
     "unpack_vector",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0a1"

@@ -80,7 +80,7 @@ Current verification snapshot:
 
 | Check | Result |
 | --- | --- |
-| Unit tests | Pass, `37` tests |
+| Unit tests | Pass, `41` tests |
 | Actual vault index | Pass; note count is device-dependent |
 | MCP `initialize` | Pass, server name `cognitiveos` |
 | MCP `tools/list` | Pass, `9` tools |
@@ -95,12 +95,12 @@ Current verification command:
 Expected:
 
 ```text
-Ran 37 tests
+Ran 41 tests
 OK
 ```
 
-Current development package version: `0.2.0`. The published `v0.1.0` tag and
-its historical release identity remain unchanged.
+Current development package version: `0.3.0a1`. The published `v0.1.0` and
+`v0.2.0` tags and their historical release identities remain unchanged.
 
 ## Version Policy
 

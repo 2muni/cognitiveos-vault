@@ -34,6 +34,7 @@ Input:
   "status": "optional lifecycle status",
   "domain": "optional domain value",
   "tag": "optional tag value",
+  "semantic_mode": "off | auto | required",
   "limit": 10
 }
 ```
@@ -49,6 +50,12 @@ Ranking v0.2 uses SQLite FTS/LIKE candidates and then reranks with local PKM sig
 - note type boost
 - status boost
 - small freshness boost
+
+`semantic_mode` defaults to `off`. `auto` uses RRF hybrid retrieval when a
+compatible provider and embedding index are available and otherwise returns the
+unchanged lexical results. `required` returns `semantic_unavailable` instead of
+falling back. Hybrid results add a `retrieval` diagnostic with lexical rank,
+semantic rank, fusion score, mode, and `hybrid-v0.1` version.
 
 ### `read_note`
 
@@ -159,7 +166,8 @@ Input:
 {
   "query": "string",
   "limit": 5,
-  "token_budget": 4000
+  "token_budget": 4000,
+  "semantic_mode": "off | auto | required"
 }
 ```
 
@@ -215,7 +223,7 @@ For invalid tool arguments, missing notes, rejected paths, or internal failures,
   ],
   "structuredContent": {
     "error": {
-      "code": "invalid_argument | not_found | invalid_request | internal_error",
+      "code": "invalid_argument | not_found | semantic_unavailable | invalid_request | internal_error",
       "message": "error message"
     }
   },

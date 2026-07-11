@@ -508,3 +508,27 @@ Verification:
   reuse, changed-note re-embedding, forced rebuild, atomic failure preservation,
   and CLI JSON output
 - the automated suite passes 37 tests
+
+### Implementation Checkpoint: Opt-in Hybrid Retrieval Core
+
+Decision:
+
+- add `semantic_mode=off|auto|required` to search and context-pack contracts
+- keep `off` as the default and preserve lexical result shape and ordering
+- make `auto` fall back to unchanged lexical retrieval on every semantic failure
+- make `required` return the structured `semantic_unavailable` MCP error
+- apply metadata filters before vector scoring
+- select each note's best cosine-scoring chunk as its semantic candidate
+- combine lexical and semantic ranks with reciprocal rank fusion using `k=60`
+- add optional `hybrid-v0.1` diagnostics only when semantic retrieval participates
+- keep production provider registration and MCP build tools disabled
+
+Verification:
+
+- test missing providers and indexes, query-provider failures, stale coverage,
+  incompatible identity, corrupt databases, metadata filters, context budgets,
+  MCP schemas, and mode-specific errors
+- add Korean, English, and mixed-language fixtures with a deterministic test
+  provider; pipeline Recall@5 and MRR both equal 1.0 on three queries
+- treat these fixture scores as pipeline verification, not production model quality
+- the automated suite passes 41 tests

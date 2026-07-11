@@ -39,6 +39,19 @@ class EmbeddingBuildResult:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class SemanticCandidate:
+    note_id: str
+    path: str
+    chunk_id: str
+    score: float
+    excerpt: str
+
+
+class SemanticUnavailableError(RuntimeError):
+    pass
+
+
 class EmbeddingIndex:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
@@ -321,6 +334,115 @@ def embedding_index_status(db_path: str | Path) -> dict[str, Any]:
         return {"status": "invalid", "index_path": str(path), "error": type(exc).__name__}
 
 
+def search_embedding_index(
+    db_path: str | Path,
+    identity: EmbeddingIdentity,
+    query_vector: list[float],
+    current_checksums: dict[str, str],
+    *,
+    limit: int,
+    require_complete: bool,
+) -> list[SemanticCandidate]:
+    path = Path(db_path)
+    if not path.exists():
+        raise SemanticUnavailableError("embedding index is missing")
+    if len(query_vector) != identity.dimension:
+        raise SemanticUnavailableError("query vector dimension does not match provider identity")
+    query_norm = math.sqrt(sum(value * value for value in query_vector))
+    if not math.isfinite(query_norm) or query_norm == 0.0:
+        raise SemanticUnavailableError("query vector is invalid")
+    try:
+        uri = f"file:{path.resolve().as_posix()}?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True)) as conn:
+            conn.row_factory = sqlite3.Row
+            integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            if integrity != "ok":
+                raise SemanticUnavailableError("embedding index integrity check failed")
+            build = conn.execute(
+                """
+                SELECT provider_id, model_id, model_revision, dimension, chunker_version, status
+                FROM embedding_builds ORDER BY build_id DESC LIMIT 1
+                """
+            ).fetchone()
+            if build is None or build["status"] != "completed":
+                raise SemanticUnavailableError("embedding index has no completed build")
+            actual_identity = (
+                build["provider_id"],
+                build["model_id"],
+                build["model_revision"],
+                build["dimension"],
+                build["chunker_version"],
+            )
+            expected_identity = (
+                identity.provider_id,
+                identity.model_id,
+                identity.model_revision,
+                identity.dimension,
+                CHUNKER_VERSION,
+            )
+            if actual_identity != expected_identity:
+                raise SemanticUnavailableError("embedding index identity is incompatible")
+
+            best_by_note: dict[str, SemanticCandidate] = {}
+            healthy_notes: set[str] = set()
+            stale_notes: set[str] = set()
+            for row in conn.execute(
+                """
+                SELECT chunk_id, note_id, path, note_checksum, content,
+                       provider_id, model_id, model_revision, dimension, vector
+                FROM embedding_chunks
+                """
+            ):
+                current_checksum = current_checksums.get(row["note_id"])
+                if current_checksum is None:
+                    continue
+                if row["note_checksum"] != current_checksum:
+                    stale_notes.add(row["note_id"])
+                    continue
+                if (
+                    row["provider_id"],
+                    row["model_id"],
+                    row["model_revision"],
+                    row["dimension"],
+                ) != (
+                    identity.provider_id,
+                    identity.model_id,
+                    identity.model_revision,
+                    identity.dimension,
+                ):
+                    raise SemanticUnavailableError("embedding chunk identity is incompatible")
+                vector = unpack_vector(row["vector"], row["dimension"])
+                if len(vector) != identity.dimension:
+                    raise SemanticUnavailableError("stored vector dimension is incompatible")
+                score = cosine_similarity(query_vector, query_norm, vector)
+                candidate = SemanticCandidate(
+                    note_id=row["note_id"],
+                    path=row["path"],
+                    chunk_id=row["chunk_id"],
+                    score=round(score, 8),
+                    excerpt=compact_excerpt(row["content"]),
+                )
+                healthy_notes.add(row["note_id"])
+                previous = best_by_note.get(row["note_id"])
+                if previous is None or candidate.score > previous.score or (
+                    candidate.score == previous.score and candidate.chunk_id < previous.chunk_id
+                ):
+                    best_by_note[row["note_id"]] = candidate
+
+            missing_notes = set(current_checksums) - healthy_notes
+            if require_complete and (stale_notes or missing_notes):
+                raise SemanticUnavailableError("embedding index coverage is stale or incomplete")
+            candidates = sorted(
+                best_by_note.values(),
+                key=lambda candidate: (-candidate.score, candidate.path, candidate.chunk_id),
+            )
+            return candidates[: max(1, limit)]
+    except SemanticUnavailableError:
+        raise
+    except Exception as exc:
+        raise SemanticUnavailableError("embedding index could not be read") from exc
+
+
 def load_reusable_vectors(
     db_path: Path,
     identity: EmbeddingIdentity,
@@ -386,6 +508,23 @@ def unpack_vector(blob: bytes, dimension: int) -> list[float]:
     if not any(value != 0.0 for value in vector):
         raise ValueError("vector must not be a zero vector")
     return vector
+
+
+def cosine_similarity(query_vector: list[float], query_norm: float, vector: list[float]) -> float:
+    vector_norm = math.sqrt(sum(value * value for value in vector))
+    if not math.isfinite(vector_norm) or vector_norm == 0.0:
+        raise SemanticUnavailableError("stored vector is invalid")
+    score = sum(left * right for left, right in zip(query_vector, vector, strict=True)) / (
+        query_norm * vector_norm
+    )
+    if not math.isfinite(score):
+        raise SemanticUnavailableError("cosine score is invalid")
+    return score
+
+
+def compact_excerpt(content: str, limit: int = 240) -> str:
+    compact = " ".join(content.split())
+    return compact if len(compact) <= limit else compact[: limit - 3].rstrip() + "..."
 
 
 def now_iso() -> str:

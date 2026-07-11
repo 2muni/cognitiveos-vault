@@ -39,6 +39,7 @@ from cognitiveos.embedding_index import (
     embedding_index_status,
     pack_vector,
     unpack_vector,
+    SemanticUnavailableError,
 )
 from cognitiveos.indexer import VaultIndex
 from cognitiveos.mcp_server import handle_message
@@ -87,6 +88,29 @@ class StaticEmbeddingProvider:
         if self.error is not None:
             raise self.error
         return self.output  # type: ignore[return-value]
+
+
+class KeywordTestEmbeddingProvider:
+    provider_id = "keyword-test"
+    model_id = "multilingual-keywords"
+    model_revision = "v1"
+    dimension = 3
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        vectors: list[list[float]] = []
+        groups = (
+            ("local-first", "markdown", "durable", "device", "오프라인", "로컬", "지식", "보관"),
+            ("mcp", "protocol", "tool", "interface", "프로토콜", "도구"),
+            ("roadmap", "project", "plan", "release", "프로젝트", "계획", "단계", "일정"),
+        )
+        for text in texts:
+            lowered = text.lower()
+            vector = [float(sum(lowered.count(term) for term in terms)) for terms in groups]
+            if not any(vector):
+                vector = [0.01, 0.01, 0.01]
+            norm = math.sqrt(sum(value * value for value in vector))
+            vectors.append([value / norm for value in vector])
+        return vectors
 
 
 class CognitiveOSTestCase(unittest.TestCase):
@@ -507,6 +531,159 @@ class EmbeddingIndexTests(CognitiveOSTestCase):
         self.assertEqual(embedding_index_status(self.embedding_db_path)["status"], "invalid")
 
 
+class SemanticRetrievalTests(CognitiveOSTestCase):
+    def build_semantic_fixture(self) -> tuple[RetrievalService, Path]:
+        fixture_root = FIXTURES / "semantic_vault"
+        with VaultIndex(self.db_path) as index:
+            index.index_vault(fixture_root)
+        embedding_db = self.root / ".pkm-index" / "semantic.sqlite3"
+        provider = KeywordTestEmbeddingProvider()
+        EmbeddingIndexBuilder(fixture_root, provider, embedding_db).build()
+        return (
+            RetrievalService(
+                fixture_root,
+                self.db_path,
+                embedding_provider=provider,
+                embedding_db_path=embedding_db,
+            ),
+            embedding_db,
+        )
+
+    def test_multilingual_semantic_evaluation_and_rrf_diagnostics(self) -> None:
+        service, _embedding_db = self.build_semantic_fixture()
+        evaluations = (
+            ("오프라인 지식 보관", "semantic_local"),
+            ("protocol tool interface", "semantic_mcp"),
+            ("프로젝트 계획 단계", "semantic_roadmap"),
+        )
+
+        hits = 0
+        reciprocal_ranks: list[float] = []
+        for query, expected_note_id in evaluations:
+            with self.subTest(query=query):
+                results = service.search_notes(query, limit=3, semantic_mode="required")
+                self.assertEqual(results[0].note_id, expected_note_id)
+                self.assertIn(expected_note_id, [result.note_id for result in results[:3]])
+                self.assertTrue(results[0].retrieval["semantic_used"])
+                self.assertEqual(results[0].retrieval["version"], "hybrid-v0.1")
+                rank = next(
+                    index for index, result in enumerate(results, start=1) if result.note_id == expected_note_id
+                )
+                hits += int(rank <= 5)
+                reciprocal_ranks.append(1.0 / rank)
+
+        self.assertEqual(hits / len(evaluations), 1.0)
+        self.assertEqual(sum(reciprocal_ranks) / len(reciprocal_ranks), 1.0)
+
+        filtered = service.search_notes(
+            "protocol tool interface",
+            note_type="source",
+            semantic_mode="required",
+        )
+        self.assertEqual([result.note_id for result in filtered], ["semantic_mcp"])
+
+        pack = service.build_context_pack(
+            "오프라인 지식 보관",
+            limit=2,
+            token_budget=512,
+            semantic_mode="required",
+        )
+        self.assertEqual(pack.results[0].note_id, "semantic_local")
+        self.assertTrue(pack.results[0].retrieval["semantic_used"])
+        self.assertLessEqual(pack.budget["estimated_tokens"], 512)
+
+    def test_auto_falls_back_and_required_reports_unavailable(self) -> None:
+        self.write_note("note.md", "# Lexical\n\nFallback keyword.")
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        off = service.search_notes("Fallback keyword", semantic_mode="off")
+        auto = service.search_notes("Fallback keyword", semantic_mode="auto")
+
+        self.assertEqual(off, auto)
+        self.assertIsNone(auto[0].retrieval)
+        with self.assertRaises(SemanticUnavailableError):
+            service.search_notes("Fallback keyword", semantic_mode="required")
+        with self.assertRaises(ValueError):
+            service.search_notes("Fallback keyword", semantic_mode="invalid")
+
+        missing_index = RetrievalService(
+            self.root,
+            self.db_path,
+            embedding_provider=KeywordTestEmbeddingProvider(),
+            embedding_db_path=self.root / ".pkm-index" / "missing.sqlite3",
+        )
+        self.assertEqual(
+            missing_index.search_notes("Fallback keyword", semantic_mode="auto"),
+            off,
+        )
+        with self.assertRaises(SemanticUnavailableError):
+            missing_index.search_notes("Fallback keyword", semantic_mode="required")
+
+        failing_provider = StaticEmbeddingProvider(error=RuntimeError("query failed"))
+        failing = RetrievalService(
+            self.root,
+            self.db_path,
+            embedding_provider=failing_provider,
+            embedding_db_path=self.root / ".pkm-index" / "unused.sqlite3",
+        )
+        self.assertEqual(failing.search_notes("Fallback keyword", semantic_mode="auto"), off)
+        with self.assertRaises(SemanticUnavailableError):
+            failing.search_notes("Fallback keyword", semantic_mode="required")
+
+    def test_stale_coverage_falls_back_in_auto_and_fails_when_required(self) -> None:
+        note = self.write_note("note.md", "# Local-first\n\nDurable Markdown knowledge.")
+        self.index()
+        provider = KeywordTestEmbeddingProvider()
+        embedding_db = self.root / ".pkm-index" / "semantic.sqlite3"
+        EmbeddingIndexBuilder(self.root, provider, embedding_db).build()
+
+        note.write_text("# Local-first\n\nChanged durable Markdown knowledge.", encoding="utf-8")
+        self.index()
+        service = RetrievalService(
+            self.root,
+            self.db_path,
+            embedding_provider=provider,
+            embedding_db_path=embedding_db,
+        )
+
+        auto = service.search_notes("Changed durable", semantic_mode="auto")
+        self.assertEqual(auto[0].note_id, parse_markdown_file(note, self.root).note_id)
+        with self.assertRaises(SemanticUnavailableError):
+            service.search_notes("Changed durable", semantic_mode="required")
+
+    def test_incompatible_and_corrupt_indexes_follow_mode_contract(self) -> None:
+        self.write_note("note.md", "# Lexical\n\nFallback keyword.")
+        self.index()
+        embedding_db = self.root / ".pkm-index" / "semantic.sqlite3"
+        deterministic = DeterministicTestEmbeddingProvider()
+        EmbeddingIndexBuilder(self.root, deterministic, embedding_db).build()
+
+        incompatible = RetrievalService(
+            self.root,
+            self.db_path,
+            embedding_provider=KeywordTestEmbeddingProvider(),
+            embedding_db_path=embedding_db,
+        )
+        self.assertEqual(
+            incompatible.search_notes("Fallback keyword", semantic_mode="auto")[0].title,
+            "Lexical",
+        )
+        with self.assertRaises(SemanticUnavailableError):
+            incompatible.search_notes("Fallback keyword", semantic_mode="required")
+
+        embedding_db.write_bytes(b"corrupt")
+        corrupt = RetrievalService(
+            self.root,
+            self.db_path,
+            embedding_provider=deterministic,
+            embedding_db_path=embedding_db,
+        )
+        self.assertEqual(corrupt.search_notes("Fallback keyword", semantic_mode="auto")[0].title, "Lexical")
+        with self.assertRaises(SemanticUnavailableError):
+            corrupt.search_notes("Fallback keyword", semantic_mode="required")
+
+
 class IndexTests(CognitiveOSTestCase):
     def test_skips_local_runtime_directories(self) -> None:
         self.write_note("note.md", "# Durable note")
@@ -844,7 +1021,7 @@ Read-only MCP tools expose Markdown search.
             },
         )
         self.assertEqual(init_response["result"]["serverInfo"]["name"], "cognitiveos")
-        self.assertEqual(init_response["result"]["serverInfo"]["version"], "0.2.0")
+        self.assertEqual(init_response["result"]["serverInfo"]["version"], "0.3.0a1")
         self.assertIn("tools", init_response["result"]["capabilities"])
 
         list_response = handle_message(service, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
@@ -858,6 +1035,11 @@ Read-only MCP tools expose Markdown search.
         token_schema = context_tool["inputSchema"]["properties"]["token_budget"]
         self.assertEqual(token_schema["minimum"], 512)
         self.assertEqual(token_schema["maximum"], 32768)
+        search_tool = next(tool for tool in list_response["result"]["tools"] if tool["name"] == "search_notes")
+        self.assertEqual(
+            search_tool["inputSchema"]["properties"]["semantic_mode"]["enum"],
+            ["off", "auto", "required"],
+        )
 
         call_response = handle_message(
             service,
@@ -959,6 +1141,56 @@ Read-only MCP tools expose Markdown search.
                 invalid_response["result"]["structuredContent"]["error"]["code"],
                 "invalid_argument",
             )
+
+        auto = handle_message(
+            service,
+            {
+                "jsonrpc": "2.0",
+                "id": 20,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_notes",
+                    "arguments": {"query": "Markdown", "semantic_mode": "auto"},
+                },
+            },
+        )
+        self.assertFalse(auto["result"]["isError"])
+
+        required = handle_message(
+            service,
+            {
+                "jsonrpc": "2.0",
+                "id": 21,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_notes",
+                    "arguments": {"query": "Markdown", "semantic_mode": "required"},
+                },
+            },
+        )
+        self.assertTrue(required["result"]["isError"])
+        self.assertEqual(
+            required["result"]["structuredContent"]["error"]["code"],
+            "semantic_unavailable",
+        )
+
+        invalid_mode = handle_message(
+            service,
+            {
+                "jsonrpc": "2.0",
+                "id": 22,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_notes",
+                    "arguments": {"query": "Markdown", "semantic_mode": "sometimes"},
+                },
+            },
+        )
+        self.assertTrue(invalid_mode["result"]["isError"])
+        self.assertEqual(
+            invalid_mode["result"]["structuredContent"]["error"]["code"],
+            "invalid_argument",
+        )
 
 
 class CLITests(CognitiveOSTestCase):

@@ -2,7 +2,8 @@
 
 CognitiveOS is a Markdown-first, local-first, MCP-addressable PKM system for an Obsidian vault.
 
-The current implementation is a read-only v0.2 retrieval release:
+The current implementation is a read-only v0.3 alpha development branch based
+on the published v0.2 retrieval release:
 
 - scans Markdown notes
 - parses frontmatter, headings, wikilinks, and Markdown links
@@ -28,11 +29,13 @@ Implemented:
 - deterministic `markdown-blocks-v1` embedding chunker and stable chunk ids
 - separate embedding SQLite builder with incremental reuse and atomic publish
 - read-only embedding index status CLI
+- opt-in `off|auto|required` semantic modes and RRF hybrid retrieval core
+- Korean, English, and mixed-language semantic evaluation fixtures
 - writeback permission design
 
 Deferred:
 
-- embedding storage, model adapters, and vector search
+- production embedding model adapters
 - graph database
 - local LLM calls
 - writeback tools
@@ -105,7 +108,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 37 tests
+Ran 41 tests
 OK
 ```
 
@@ -130,7 +133,10 @@ PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_search; m
 ```
 
 Both commands accept `--format text|json`. Indexing defaults to `text`; search
-defaults to `json` for backward compatibility.
+defaults to `json` for backward compatibility. Search also accepts
+`--semantic-mode off|auto|required`; `off` is the default, `auto` falls back to
+lexical retrieval, and `required` errors when compatible semantic retrieval is
+unavailable.
 
 ## MCP Server
 
@@ -195,8 +201,9 @@ System/docs/embeddings-design-v0.3.md
 
 The provider-neutral interface and deterministic chunker are implemented, but
 the implementation also includes a separate derived SQLite builder and status
-CLI. No production model adapter is installed, so semantic retrieval remains
-disabled and unavailable by default.
+CLI and hybrid retrieval core. No production model adapter is installed, so
+semantic retrieval remains unavailable in ordinary runtime configuration and
+`off` remains the default.
 
 Inspect local embedding status without creating an index or calling a provider:
 
@@ -233,11 +240,11 @@ System/docs/release-notes-v0.2.0.md
 Current package version:
 
 ```text
-0.2.0
+0.3.0a1
 ```
 
 Published stable release:
 
 ```text
-v0.1.0
+v0.2.0
 ```

@@ -8,7 +8,8 @@ from typing import Callable
 from .embedding_index import EmbeddingIndexBuilder, default_embedding_index_path, embedding_index_status
 from .embeddings import EmbeddingProvider, provider_identity
 from .indexer import VaultIndex, default_index_path
-from .retrieval import RetrievalService
+from .embedding_index import SemanticUnavailableError
+from .retrieval import RetrievalService, search_result_to_dict
 
 
 EMBEDDING_PROVIDER_FACTORIES: dict[str, Callable[[str, str], EmbeddingProvider]] = {}
@@ -39,19 +40,24 @@ def main_search() -> None:
     parser.add_argument("--domain", default=None, help="Optional domain filter")
     parser.add_argument("--tag", default=None, help="Optional tag filter")
     parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--semantic-mode", choices=("off", "auto", "required"), default="off")
     parser.add_argument("--format", choices=("text", "json"), default="json", help="Output format")
     args = parser.parse_args()
     service = RetrievalService(args.vault_root, args.db)
-    results = service.search_notes(
-        args.query,
-        note_type=args.type,
-        limit=args.limit,
-        status=args.status,
-        domain=args.domain,
-        tag=args.tag,
-    )
+    try:
+        results = service.search_notes(
+            args.query,
+            note_type=args.type,
+            limit=args.limit,
+            status=args.status,
+            domain=args.domain,
+            tag=args.tag,
+            semantic_mode=args.semantic_mode,
+        )
+    except SemanticUnavailableError as exc:
+        parser.error(str(exc))
     if args.format == "json":
-        print(json.dumps([result.__dict__ for result in results], ensure_ascii=False, indent=2))
+        print(json.dumps([search_result_to_dict(result) for result in results], ensure_ascii=False, indent=2))
     else:
         for result in results:
             print(f"{result.score:.6f}\t{result.title}\t{result.path}\t{result.matched_excerpt}")

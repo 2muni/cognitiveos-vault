@@ -9,7 +9,8 @@ the source of truth.
 
 Design status: complete. Implementation status: provider boundary and
 deterministic chunking, separate SQLite storage, incremental/full builder, and
-status/build CLI complete; production adapters and hybrid retrieval deferred.
+status/build CLI, semantic modes, cosine candidate search, and RRF hybrid
+retrieval complete; production adapters deferred.
 
 ## Invariants
 
@@ -215,6 +216,13 @@ When semantic retrieval participates, results add an optional diagnostic object:
 Existing result fields remain unchanged. Context packs continue to enforce the
 v0.2 token budget after hybrid candidate selection.
 
+The retrieval contract is implemented in `src/cognitiveos/retrieval.py` and
+`src/cognitiveos/embedding_index.py`. Lexical ranking remains unchanged in
+`off`, `auto` catches provider/index/coverage failures and returns lexical
+results, and `required` raises `semantic_unavailable`. Metadata filters determine
+eligible note ids before vector scoring. Note-level semantic rank uses the best
+cosine-scoring chunk; RRF then combines lexical and semantic ranks with `k=60`.
+
 ## Failure and Fallback Matrix
 
 | Condition | `off` | `auto` | `required` |
@@ -259,6 +267,10 @@ Implementation is complete only when all gates pass:
 - context token budgets and evidence paths remain valid after hybrid retrieval
 - checksum comparison proves source Markdown is unchanged
 - no network request occurs in default configuration or `semantic_mode=off`
+
+The deterministic multilingual keyword fixture currently records Recall@5 =
+1.0 and MRR = 1.0 for three test queries. This verifies pipeline behavior only;
+it is not evidence of production model quality.
 
 Initial implementation should be released as an opt-in pre-release before any
 stable version enables `auto` by default. Changing the default from `off` requires

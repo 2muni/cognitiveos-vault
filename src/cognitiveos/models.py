@@ -59,6 +59,7 @@ class SearchResult:
     note_type: str
     score: float
     matched_excerpt: str
+    retrieval: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

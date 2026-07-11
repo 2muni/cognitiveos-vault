@@ -8,6 +8,13 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
+from .embedding_index import (
+    SemanticCandidate,
+    SemanticUnavailableError,
+    default_embedding_index_path,
+    search_embedding_index,
+)
+from .embeddings import EmbeddingError, EmbeddingProvider, embed_texts, provider_identity
 from .indexer import VaultIndex, default_index_path
 from .models import ContextPack, SearchResult
 from .parser import parse_markdown_file
@@ -15,9 +22,22 @@ from .safety import resolve_vault_root, safe_resolve_inside
 
 
 class RetrievalService:
-    def __init__(self, vault_root: str | Path, db_path: str | Path | None = None):
+    def __init__(
+        self,
+        vault_root: str | Path,
+        db_path: str | Path | None = None,
+        *,
+        embedding_provider: EmbeddingProvider | None = None,
+        embedding_db_path: str | Path | None = None,
+    ):
         self.vault_root = resolve_vault_root(vault_root)
         self.db_path = Path(db_path) if db_path else default_index_path(self.vault_root)
+        self.embedding_provider = embedding_provider
+        self.embedding_db_path = (
+            Path(embedding_db_path)
+            if embedding_db_path
+            else default_embedding_index_path(self.vault_root)
+        )
 
     def ensure_index(self) -> None:
         with VaultIndex(self.db_path) as index:
@@ -31,6 +51,42 @@ class RetrievalService:
         status: str | None = None,
         domain: str | None = None,
         tag: str | None = None,
+        semantic_mode: str = "off",
+    ) -> list[SearchResult]:
+        if semantic_mode not in {"off", "auto", "required"}:
+            raise ValueError("semantic_mode must be off, auto, or required")
+        requested_limit = max(1, min(limit, 50))
+        if semantic_mode == "off":
+            return self._search_lexical(query, note_type, requested_limit, status, domain, tag)
+
+        candidate_limit = min(max(requested_limit * 4, 25), 50)
+        lexical = self._search_lexical(query, note_type, candidate_limit, status, domain, tag)
+        try:
+            semantic = self._search_semantic(
+                query,
+                note_type,
+                candidate_limit,
+                status,
+                domain,
+                tag,
+                require_complete=semantic_mode == "required",
+            )
+        except (EmbeddingError, SemanticUnavailableError, ValueError) as exc:
+            if semantic_mode == "required":
+                if isinstance(exc, SemanticUnavailableError):
+                    raise
+                raise SemanticUnavailableError("semantic retrieval is unavailable") from exc
+            return lexical[:requested_limit]
+        return self._fuse_search_results(lexical, semantic, semantic_mode, requested_limit)
+
+    def _search_lexical(
+        self,
+        query: str,
+        note_type: str | None,
+        limit: int,
+        status: str | None,
+        domain: str | None,
+        tag: str | None,
     ) -> list[SearchResult]:
         self.ensure_index()
         limit = max(1, min(limit, 50))
@@ -53,6 +109,116 @@ class RetrievalService:
             ]
             results.sort(key=lambda result: (-result.score, result.title, result.path))
             return results[:limit]
+
+    def _search_semantic(
+        self,
+        query: str,
+        note_type: str | None,
+        limit: int,
+        status: str | None,
+        domain: str | None,
+        tag: str | None,
+        *,
+        require_complete: bool,
+    ) -> list[SemanticCandidate]:
+        if self.embedding_provider is None:
+            raise SemanticUnavailableError("embedding provider is unavailable")
+        identity = provider_identity(self.embedding_provider)
+        query_vector = embed_texts(self.embedding_provider, [query])[0]
+        current_checksums = self._eligible_note_checksums(note_type, status, domain, tag)
+        return search_embedding_index(
+            self.embedding_db_path,
+            identity,
+            query_vector,
+            current_checksums,
+            limit=limit,
+            require_complete=require_complete,
+        )
+
+    def _eligible_note_checksums(
+        self,
+        note_type: str | None,
+        status: str | None,
+        domain: str | None,
+        tag: str | None,
+    ) -> dict[str, str]:
+        self.ensure_index()
+        filter_sql, params = build_note_filters(note_type, status, domain, tag)
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                f"SELECT n.note_id, n.checksum FROM notes n WHERE 1 = 1 {filter_sql}",
+                params,
+            ).fetchall()
+            return {row["note_id"]: row["checksum"] for row in rows}
+
+    def _fuse_search_results(
+        self,
+        lexical: list[SearchResult],
+        semantic: list[SemanticCandidate],
+        semantic_mode: str,
+        limit: int,
+    ) -> list[SearchResult]:
+        lexical_by_id = {result.note_id: result for result in lexical}
+        semantic_by_id = {result.note_id: result for result in semantic}
+        lexical_ranks = {result.note_id: rank for rank, result in enumerate(lexical, start=1)}
+        semantic_ranks = {result.note_id: rank for rank, result in enumerate(semantic, start=1)}
+        note_ids = set(lexical_by_id) | set(semantic_by_id)
+        metadata = self._note_metadata(note_ids - set(lexical_by_id))
+        fused: list[SearchResult] = []
+        for note_id in note_ids:
+            lexical_result = lexical_by_id.get(note_id)
+            semantic_result = semantic_by_id.get(note_id)
+            lexical_rank = lexical_ranks.get(note_id)
+            semantic_rank = semantic_ranks.get(note_id)
+            fusion_score = 0.0
+            if lexical_rank is not None:
+                fusion_score += 1.0 / (60 + lexical_rank)
+            if semantic_rank is not None:
+                fusion_score += 1.0 / (60 + semantic_rank)
+            if lexical_result is not None:
+                path = lexical_result.path
+                title = lexical_result.title
+                note_type = lexical_result.note_type
+                excerpt = lexical_result.matched_excerpt
+            else:
+                row = metadata[note_id]
+                path = row["path"]
+                title = row["title"]
+                note_type = row["type"]
+                excerpt = semantic_result.excerpt if semantic_result else ""
+            fused.append(
+                SearchResult(
+                    note_id=note_id,
+                    path=path,
+                    title=title,
+                    note_type=note_type,
+                    score=round(fusion_score, 8),
+                    matched_excerpt=excerpt,
+                    retrieval={
+                        "version": "hybrid-v0.1",
+                        "semantic_mode": semantic_mode,
+                        "semantic_used": True,
+                        "lexical_rank": lexical_rank,
+                        "semantic_rank": semantic_rank,
+                        "fusion_score": round(fusion_score, 8),
+                    },
+                )
+            )
+        fused.sort(key=lambda result: (-result.score, result.title, result.path))
+        return fused[:limit]
+
+    def _note_metadata(self, note_ids: set[str]) -> dict[str, sqlite3.Row]:
+        if not note_ids:
+            return {}
+        placeholders = ",".join("?" for _ in note_ids)
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                f"SELECT note_id, path, title, type FROM notes WHERE note_id IN ({placeholders})",
+                tuple(sorted(note_ids)),
+            ).fetchall()
+            return {row["note_id"]: row for row in rows}
 
     def read_note(self, note_id: str | None = None, path: str | None = None) -> dict[str, Any]:
         if not note_id and not path:
@@ -117,7 +283,7 @@ class RetrievalService:
         note = self.read_note(note_id=note_id)
         query = " ".join([note["title"], *[heading["text"] for heading in note["headings"][:3]]]).strip()
         results = [result for result in self.search_notes(query, limit=limit + 1) if result.note_id != note_id]
-        return [result.__dict__ for result in results[:limit]]
+        return [search_result_to_dict(result) for result in results[:limit]]
 
     def suggest_links(self, note_id: str, limit: int = 10) -> list[dict[str, Any]]:
         note = self.read_note(note_id=note_id)
@@ -214,11 +380,17 @@ class RetrievalService:
             "writeback": False,
         }
 
-    def build_context_pack(self, query: str, limit: int = 5, token_budget: int = 4000) -> ContextPack:
+    def build_context_pack(
+        self,
+        query: str,
+        limit: int = 5,
+        token_budget: int = 4000,
+        semantic_mode: str = "off",
+    ) -> ContextPack:
         limit = max(1, min(limit, 20))
         token_budget = validate_token_budget(token_budget)
         candidate_limit = min(max(limit * 4, 20), 50)
-        candidates = self.search_notes(query, limit=candidate_limit)
+        candidates = self.search_notes(query, limit=candidate_limit, semantic_mode=semantic_mode)
         selected_results = select_diverse_results(candidates, limit)
         included_results: list[SearchResult] = []
         source_lines: list[list[str]] = []
@@ -407,13 +579,27 @@ def context_pack_to_dict(pack: ContextPack) -> dict[str, Any]:
         "query": pack.query,
         "context_version": pack.context_version,
         "context": pack.context,
-        "results": [result.__dict__ for result in pack.results],
+        "results": [search_result_to_dict(result) for result in pack.results],
         "sources": pack.sources,
         "key_points": pack.key_points,
         "evidence_paths": pack.evidence_paths,
         "stats": pack.stats,
         "budget": pack.budget,
     }
+
+
+def search_result_to_dict(result: SearchResult) -> dict[str, Any]:
+    payload = {
+        "note_id": result.note_id,
+        "path": result.path,
+        "title": result.title,
+        "note_type": result.note_type,
+        "score": result.score,
+        "matched_excerpt": result.matched_excerpt,
+    }
+    if result.retrieval is not None:
+        payload["retrieval"] = result.retrieval
+    return payload
 
 
 def validate_token_budget(token_budget: Any) -> int:

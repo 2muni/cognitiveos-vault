@@ -669,3 +669,22 @@ Verification:
 - the stabilization suite passes 53 tests in the default environment
 - release blockers are operational integration and publication steps, not
   missing semantic feature implementation
+
+### Verification: Clean v0.3 Release-Candidate Worktree
+
+Result:
+
+- collect the complete linear semantic history as `codex/v03-release-candidate`
+- check out detached commit `9cc89f8` in a clean `/tmp` worktree
+- install default development and MCP dependencies into a new Python 3.14 environment
+- pass 53 tests, 26 subtests, 9-tool discovery, and writeback-disabled checks
+- build `0.3.0a1` wheel and sdist and install the wheel in another clean environment
+- verify all four command-line entry points from the installed package
+- install the Intel local-embedding extra in a new Python 3.12 environment
+- pass 53 tests and the forced-offline pinned-model quality evaluation
+
+Decision:
+
+- mark clean-worktree, packaging, wheel-install, and dual-runtime gates complete
+- keep main integration, final version bump, release notes, release-commit smoke,
+  tag, push, and GitHub Release pending

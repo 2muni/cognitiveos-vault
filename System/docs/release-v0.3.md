@@ -53,6 +53,10 @@ approved by the user.
 | Private Markdown checksum unchanged | Pass | 9 private Markdown aggregate |
 | Basic and model runtimes pass tests | Pass | 53 tests after stabilization |
 | Writeback remains disabled | Pass | environment verification |
+| Clean detached worktree install | Pass | commit `9cc89f8` |
+| Wheel and sdist build | Pass | `cognitiveos-0.3.0a1` artifacts |
+| Wheel-only import and four CLI entry points | Pass | fresh Python 3.14 environment |
+| Clean-worktree pinned-model evaluation | Pass | forced offline, all quality gates |
 
 Other-device and Codex/VS Code visual discovery checks remain explicitly
 deferred and are not v0.3 release blockers under the approved scope.
@@ -62,9 +66,11 @@ deferred and are not v0.3 release blockers under the approved scope.
 These are release operations, not missing v0.3 features:
 
 - [ ] integrate the stacked `codex/*` semantic branches into `main`
-- [ ] confirm the integrated `main` history and working tree are clean
-- [ ] run install and tests from a fresh checkout or clean worktree
-- [ ] run both default Python and supported local-embedding runtime tests
+- [x] collect the stacked work as `codex/v03-release-candidate`
+- [x] verify the release-candidate history and working tree are clean
+- [x] run install and tests from a detached clean worktree
+- [x] run both default Python and supported local-embedding runtime tests
+- [x] build wheel and sdist, install the wheel alone, and verify all CLI entries
 - [ ] rebuild lexical and embedding indexes from the release commit
 - [ ] repeat MCP initialize, 9-tool list, invalid call, required semantic query,
       writeback-disabled, SQLite integrity, and private checksum checks
@@ -80,6 +86,32 @@ The implementation may be called feature-complete now. It may be called a
 release candidate only after branch integration and fresh-checkout verification.
 It may be called released only after the exact `0.3.0` commit is approved,
 tagged, pushed, and published without moving historical tags.
+
+## Clean Worktree Verification Record
+
+On 2026-07-12, detached commit `9cc89f8` was checked out at
+`/tmp/cognitiveos-v03-rc` with no access to the vault's private notes or derived
+indexes.
+
+- Python 3.14.6 fresh environment installed `.[dev,mcp]`
+- pytest passed 53 tests and 26 subtests
+- environment verification exposed 9 tools and writeback remained disabled
+- package, installed package, and MCP versions all reported `0.3.0a1`
+- `cognitiveos-index`, `cognitiveos-search`, `cognitiveos-embed`, and
+  `cognitiveos-evaluate-embeddings` entry points loaded successfully
+- wheel and sdist built successfully
+- the wheel installed alone in a second clean environment and imported as
+  `0.3.0a1`
+- Python 3.12.13 fresh Intel environment resolved Sentence Transformers 3.4.1,
+  PyTorch 2.2.2, and NumPy 1.26.4
+- 53 tests passed in the local-embedding environment
+- pinned-model evaluation ran with network access disabled and returned hybrid
+  Recall@5 `1.0`, hybrid MRR `1.0`, and all gates passing
+
+The first evaluation attempt reused a path from an interrupted parallel run and
+encountered a SQLite disk I/O error. Repeating in a new unique temporary
+directory passed, confirming an isolated artifact-path collision rather than a
+release-candidate defect.
 
 Writeback, graph storage, local LLM generation, background model downloads, and
 semantic-by-default behavior remain outside v0.3. They require separate plans

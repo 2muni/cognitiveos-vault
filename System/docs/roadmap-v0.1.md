@@ -292,6 +292,8 @@ Next implementation gate:
   pipeline fixture for regression tests
 - recorded Intel latency, index size, Recall@5, MRR, and forced-offline repeat
 - actual MCP launcher and search CLI required-mode offline smoke tests complete
+- actual 42-note vault baseline complete: 327 chunks, 1.3 MB index, 45.99-second
+  full rebuild, 71.84 ms warm query median, and private Markdown checksum gate
 - run the same pinned-model harness on remaining supported hardware later
 - keep semantic retrieval disabled by default
 - pass the privacy, fallback, lexical non-regression, and source checksum gates

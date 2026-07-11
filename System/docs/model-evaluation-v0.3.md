@@ -138,3 +138,41 @@ The pinned cache and fixture index were also verified through the actual MCP
 launcher and search CLI with both Hugging Face and Transformers offline modes
 forced. An MCP `semantic_mode=required` query returned `semantic_local` first
 with `semantic_used=true`; the CLI returned the same top result and diagnostics.
+
+## Actual Vault Embedding Baseline
+
+Verified on 2026-07-12 using the same Intel Mac, runtime, model, immutable
+revision, cache-only environment, and `markdown-blocks-v1` chunker. Model network
+access was disabled throughout build and retrieval.
+
+| Measurement | Result |
+| --- | ---: |
+| Markdown notes | 42 |
+| Embedding chunks | 327 |
+| Chunk characters | 138,091 |
+| Vector dimension | 384 |
+| Full rebuild wall time | 45.99 s |
+| Incremental wall time | 10.44 s |
+| Incremental vectors reused | 327 / 327 |
+| Embedding SQLite size | 1.3 MB |
+| Warm model load | 12.53 s |
+| Required-mode query median, 6 queries | 71.84 ms |
+| Required-mode query p95, 6 queries | 137.30 ms |
+
+SQLite integrity returned `ok`; metadata and vector rows agreed on 42 distinct
+notes, 327 chunks, and dimension 384. Six Korean, English, and mixed-language
+smoke queries all returned results. The actual MCP launcher exposed the expected
+9 read-only tools and completed a required-mode query with
+`semantic_used=true`.
+
+Before the initial build, all 42 scanner-visible Markdown files produced the
+aggregate SHA-256
+`5eee2065737da8c2a162dc18921814cacd8fdd5c677ebbaa34f1800bbc461ad6`.
+The same aggregate was reproduced after the build. Separately, the 9 private,
+Git-ignored Markdown files produced aggregate SHA-256
+`005bc9027101709a3d1de76805d1aa773bf0ddba2d6b6c934540b1e4907872ac`.
+This private-note checksum is the durable no-write gate when tracked operational
+documentation is updated with evaluation results.
+
+These measurements describe this device and current vault size. Other-device
+verification remains deferred and is not a v0.3 completion gate at this stage.

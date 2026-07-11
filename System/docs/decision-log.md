@@ -623,3 +623,22 @@ Verification:
   note first with `semantic_used=true`
 - actual offline search CLI returns the same result and JSON diagnostics
 - the automated suite passes 52 tests
+
+### Verification: Actual Vault Embedding Baseline
+
+Result:
+
+- build the derived embedding index offline from 42 Markdown notes and 327 chunks
+- verify SQLite integrity, exact model revision, 384 dimensions, and full coverage
+- record a 45.99-second full rebuild and 10.44-second all-reused incremental run
+- record a 1.3 MB derived index and six-query required-mode median of 71.84 ms
+- verify the real MCP launcher exposes 9 tools and returns semantic diagnostics
+- reproduce the full Markdown checksum immediately before and after model build
+- establish a separate checksum for 9 Git-ignored private Markdown files so
+  tracked evaluation documentation can change without weakening the no-write gate
+
+Decision:
+
+- retain the derived index locally under `.pkm-index`; never commit it
+- use the private-note aggregate checksum as the source-safety release gate
+- defer other-device baselines as previously scoped

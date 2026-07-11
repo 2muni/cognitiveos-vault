@@ -30,6 +30,7 @@ from .embedding_index import (
     search_embedding_index,
     unpack_vector,
 )
+from .sentence_transformers_adapter import SentenceTransformersProvider
 
 __all__ = [
     "EmbeddingConfigurationError",
@@ -39,6 +40,7 @@ __all__ = [
     "EmbeddingIndexBuilder",
     "SemanticCandidate",
     "SemanticUnavailableError",
+    "SentenceTransformersProvider",
     "EmbeddingError",
     "EmbeddingIdentity",
     "EmbeddingProvider",

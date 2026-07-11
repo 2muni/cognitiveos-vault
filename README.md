@@ -108,7 +108,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 41 tests
+Ran 44 tests
 OK
 ```
 
@@ -199,11 +199,10 @@ The approved design for future opt-in semantic retrieval is maintained in:
 System/docs/embeddings-design-v0.3.md
 ```
 
-The provider-neutral interface and deterministic chunker are implemented, but
-the implementation also includes a separate derived SQLite builder and status
-CLI and hybrid retrieval core. No production model adapter is installed, so
-semantic retrieval remains unavailable in ordinary runtime configuration and
-`off` remains the default.
+The provider-neutral interface, deterministic chunker, derived SQLite builder,
+hybrid retrieval core, and optional local `sentence-transformers` adapter are
+implemented. The adapter dependency and model files are not installed by
+default, and `off` remains the retrieval default.
 
 Inspect local embedding status without creating an index or calling a provider:
 
@@ -211,9 +210,23 @@ Inspect local embedding status without creating an index or calling a provider:
 PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_embed; main_embed()" --status --format json
 ```
 
-Building requires an explicitly registered provider plus exact model and
-revision values. The core package registers no provider and performs no model
-download or network request by default.
+Install the optional local runtime only on a device approved for model storage:
+
+```bash
+uv pip install -e '.[local-embeddings]'
+```
+
+Building requires an exact model id and immutable revision. The command is
+cache-only by default and does not download model files:
+
+```bash
+cognitiveos-embed --vault-root . --provider sentence-transformers \
+  --model MODEL_ID --revision COMMIT_SHA
+```
+
+Add `--allow-model-download` only for an explicit, reviewed model acquisition.
+The adapter always disables remote model code. Search never initiates a build or
+download.
 
 ## Release Policy
 
@@ -248,3 +261,6 @@ Published stable release:
 ```text
 v0.2.0
 ```
+
+`v0.3.0` will remain unpublished until the planned semantic retrieval work,
+production-model evaluation, privacy checks, and release gates are complete.

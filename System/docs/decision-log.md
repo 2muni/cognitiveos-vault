@@ -532,3 +532,23 @@ Verification:
   provider; pipeline Recall@5 and MRR both equal 1.0 on three queries
 - treat these fixture scores as pipeline verification, not production model quality
 - the automated suite passes 41 tests
+
+### Implementation Checkpoint: Local Sentence-Transformers Adapter
+
+Decision:
+
+- register `sentence-transformers` as the first optional production adapter
+- keep its dependency in the `local-embeddings` extra and import it only when selected
+- require exact model and revision values for every build
+- use local cached model files by default; require `--allow-model-download` for acquisition
+- keep `trust_remote_code=false` and use CPU unless a device is explicitly selected
+- normalize embeddings during encoding and retain core vector validation
+- keep search, status inspection, and the default installation free of model downloads
+- hold the public `v0.3.0` release until production-model evaluation and all gates pass
+
+Verification:
+
+- injected backend tests cover cache-only loading, explicit download opt-in,
+  remote-code rejection, device selection, normalized encoding, dimension
+  discovery, and sanitized load failures
+- the automated suite passes 44 tests without the optional runtime installed

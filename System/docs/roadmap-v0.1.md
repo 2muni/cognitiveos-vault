@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `41` unit tests
+- `44` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -258,8 +258,9 @@ Current smoke verification:
 Phase 7: optional semantic retrieval foundation.
 
 Status: Design, provider boundary, deterministic chunker, separate derived
-storage, builder, status/build CLI, semantic modes, cosine search, and RRF hybrid
-retrieval core complete. Production adapters are not part of v0.2.
+storage, builder, status/build CLI, semantic modes, cosine search, RRF hybrid
+retrieval core, and optional local `sentence-transformers` adapter complete.
+The adapter is development work for v0.3 and is not part of v0.2.
 
 Recommended tasks:
 
@@ -285,12 +286,14 @@ Recommended tasks:
 
 Next implementation gate:
 
-- implement and privacy-review the first production local model adapter
+- privacy-review the first production local model adapter against an approved model
 - replace the deterministic pipeline fixture with a production-model quality
   baseline while retaining it for regression tests
 - measure latency, index size, Recall@5, and MRR on an approved local model
 - keep semantic retrieval disabled by default
 - pass the privacy, fallback, lexical non-regression, and source checksum gates
+- publish `v0.3.0` only after every gate above is complete; do not publish an
+  intermediate alpha GitHub Release
 
 Release policy:
 

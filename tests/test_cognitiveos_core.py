@@ -47,6 +47,7 @@ from cognitiveos.models import SearchResult
 from cognitiveos.parser import parse_markdown_file
 from cognitiveos.retrieval import RetrievalService, estimate_tokens, select_diverse_results
 from cognitiveos.safety import safe_resolve_inside
+from cognitiveos.sentence_transformers_adapter import SentenceTransformersProvider
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -200,6 +201,85 @@ class SafetyTests(CognitiveOSTestCase):
 
 
 class EmbeddingProviderTests(unittest.TestCase):
+    def test_sentence_transformers_adapter_is_offline_safe_and_normalized(self) -> None:
+        calls: dict[str, object] = {}
+
+        class FakeModel:
+            def get_sentence_embedding_dimension(self) -> int:
+                return 2
+
+            def encode(self, texts: list[str], **kwargs: object) -> list[list[float]]:
+                calls["texts"] = texts
+                calls["encode"] = kwargs
+                return [[0.6, 0.8] for _text in texts]
+
+        def loader(model_id: str, **kwargs: object) -> FakeModel:
+            calls["model_id"] = model_id
+            calls["load"] = kwargs
+            return FakeModel()
+
+        provider = SentenceTransformersProvider(
+            "example/model",
+            "deadbeef",
+            model_loader=loader,
+        )
+
+        self.assertEqual(provider.dimension, 2)
+        self.assertEqual(calls["model_id"], "example/model")
+        self.assertEqual(
+            calls["load"],
+            {
+                "revision": "deadbeef",
+                "device": "cpu",
+                "local_files_only": True,
+                "trust_remote_code": False,
+            },
+        )
+        self.assertEqual(embed_texts(provider, ["한글", "English"]), [[0.6, 0.8], [0.6, 0.8]])
+        self.assertEqual(
+            calls["encode"],
+            {
+                "convert_to_numpy": True,
+                "normalize_embeddings": True,
+                "show_progress_bar": False,
+            },
+        )
+
+    def test_sentence_transformers_download_requires_explicit_opt_in(self) -> None:
+        load_calls: list[dict[str, object]] = []
+
+        class FakeModel:
+            def get_embedding_dimension(self) -> int:
+                return 3
+
+        def loader(_model_id: str, **kwargs: object) -> FakeModel:
+            load_calls.append(kwargs)
+            return FakeModel()
+
+        SentenceTransformersProvider(
+            "example/model",
+            "deadbeef",
+            allow_model_download=True,
+            device="mps",
+            model_loader=loader,
+        )
+
+        self.assertFalse(load_calls[0]["local_files_only"])
+        self.assertFalse(load_calls[0]["trust_remote_code"])
+        self.assertEqual(load_calls[0]["device"], "mps")
+
+    def test_sentence_transformers_load_failure_is_sanitized(self) -> None:
+        def failing_loader(_model_id: str, **_kwargs: object) -> object:
+            raise RuntimeError("secret backend detail")
+
+        with self.assertRaisesRegex(EmbeddingConfigurationError, "local-cache-only") as raised:
+            SentenceTransformersProvider(
+                "example/model",
+                "deadbeef",
+                model_loader=failing_loader,
+            )
+        self.assertNotIn("secret backend detail", str(raised.exception))
+
     def test_provider_identity_and_deterministic_batch(self) -> None:
         provider = DeterministicTestEmbeddingProvider()
 
@@ -474,13 +554,17 @@ class EmbeddingIndexTests(CognitiveOSTestCase):
         ), redirect_stderr(error_output):
             with self.assertRaises(SystemExit):
                 main_embed()
-        self.assertIn("no provider is enabled by default", error_output.getvalue())
+        self.assertIn("embedding provider is not registered", error_output.getvalue())
         self.assertFalse(self.embedding_db_path.exists())
 
         build_output = io.StringIO()
         with patch.dict(
             cognitiveos_cli.EMBEDDING_PROVIDER_FACTORIES,
-            {"test": lambda model, revision: DeterministicTestEmbeddingProvider()},
+            {
+                "test": lambda model, revision, allow_download, device: (
+                    DeterministicTestEmbeddingProvider()
+                )
+            },
             clear=True,
         ), patch.object(
             sys,

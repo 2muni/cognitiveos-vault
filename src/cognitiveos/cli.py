@@ -10,9 +10,13 @@ from .embeddings import EmbeddingProvider, provider_identity
 from .indexer import VaultIndex, default_index_path
 from .embedding_index import SemanticUnavailableError
 from .retrieval import RetrievalService, search_result_to_dict
+from .sentence_transformers_adapter import create_sentence_transformers_provider
 
 
-EMBEDDING_PROVIDER_FACTORIES: dict[str, Callable[[str, str], EmbeddingProvider]] = {}
+EmbeddingProviderFactory = Callable[[str, str, bool, str], EmbeddingProvider]
+EMBEDDING_PROVIDER_FACTORIES: dict[str, EmbeddingProviderFactory] = {
+    "sentence-transformers": create_sentence_transformers_provider,
+}
 
 
 def main_index() -> None:
@@ -71,6 +75,12 @@ def main_embed() -> None:
     parser.add_argument("--provider", default=None, help="Explicit registered provider id")
     parser.add_argument("--model", default=None, help="Explicit provider model id")
     parser.add_argument("--revision", default=None, help="Explicit immutable model revision")
+    parser.add_argument(
+        "--allow-model-download",
+        action="store_true",
+        help="Explicitly allow the local adapter to download model files",
+    )
+    parser.add_argument("--device", default="cpu", help="Local inference device (default: cpu)")
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--rebuild", action="store_true", help="Disable vector reuse and rebuild every chunk")
     parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
@@ -82,7 +92,13 @@ def main_embed() -> None:
     if not args.provider or not args.model or not args.revision:
         parser.error("build requires --provider, --model, and --revision")
     try:
-        provider = resolve_embedding_provider(args.provider, args.model, args.revision)
+        provider = resolve_embedding_provider(
+            args.provider,
+            args.model,
+            args.revision,
+            allow_model_download=args.allow_model_download,
+            device=args.device,
+        )
         result = EmbeddingIndexBuilder(
             args.vault_root,
             provider,
@@ -100,13 +116,20 @@ def main_embed() -> None:
         )
 
 
-def resolve_embedding_provider(provider_id: str, model_id: str, model_revision: str) -> EmbeddingProvider:
+def resolve_embedding_provider(
+    provider_id: str,
+    model_id: str,
+    model_revision: str,
+    *,
+    allow_model_download: bool = False,
+    device: str = "cpu",
+) -> EmbeddingProvider:
     factory = EMBEDDING_PROVIDER_FACTORIES.get(provider_id)
     if factory is None:
         raise ValueError(
-            f"embedding provider is not installed: {provider_id}; no provider is enabled by default"
+            f"embedding provider is not registered: {provider_id}"
         )
-    provider = factory(model_id, model_revision)
+    provider = factory(model_id, model_revision, allow_model_download, device)
     identity = provider_identity(provider)
     if (
         identity.provider_id,

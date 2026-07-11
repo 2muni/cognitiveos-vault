@@ -9,8 +9,9 @@ the source of truth.
 
 Design status: complete. Implementation status: provider boundary and
 deterministic chunking, separate SQLite storage, incremental/full builder, and
-status/build CLI, semantic modes, cosine candidate search, and RRF hybrid
-retrieval complete; production adapters deferred.
+status/build CLI, semantic modes, cosine candidate search, RRF hybrid retrieval,
+and the first optional local adapter complete; production-model evaluation is
+deferred.
 
 ## Invariants
 
@@ -170,9 +171,13 @@ replace. Incremental reuse requires matching chunk id, content hash, provider,
 model, immutable revision, dimension, and chunker version. A provider failure
 leaves the last valid database byte-for-byte unchanged.
 
-The core provider registry is empty. Tests inject the deterministic provider;
-ordinary installations cannot build embeddings until a production adapter is
-implemented and explicitly registered.
+The registry includes the optional `sentence-transformers` local adapter. Its
+runtime is isolated in the `local-embeddings` package extra and imported only
+when that provider is selected. Model and immutable revision remain explicit.
+Loading is cache-only by default; `--allow-model-download` is required to permit
+model acquisition. `trust_remote_code` is always false and CPU is the default
+device. Tests use an injected model loader, so the suite neither installs a
+model runtime nor downloads model files.
 
 ## Retrieval Modes
 
@@ -272,9 +277,10 @@ The deterministic multilingual keyword fixture currently records Recall@5 =
 1.0 and MRR = 1.0 for three test queries. This verifies pipeline behavior only;
 it is not evidence of production model quality.
 
-Initial implementation should be released as an opt-in pre-release before any
-stable version enables `auto` by default. Changing the default from `off` requires
-a separate decision and release review.
+Do not publish `v0.3.0` until the planned semantic retrieval implementation,
+approved production-model quality baseline, latency/index-size measurements,
+privacy checks, and all release gates are complete. Changing the default from
+`off` requires a separate decision and release review.
 
 ## Explicit Non-goals
 

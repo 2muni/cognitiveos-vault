@@ -80,7 +80,7 @@ Current verification snapshot:
 
 | Check | Result |
 | --- | --- |
-| Unit tests | Pass, `41` tests |
+| Unit tests | Pass, `44` tests |
 | Actual vault index | Pass; note count is device-dependent |
 | MCP `initialize` | Pass, server name `cognitiveos` |
 | MCP `tools/list` | Pass, `9` tools |
@@ -95,7 +95,7 @@ Current verification command:
 Expected:
 
 ```text
-Ran 41 tests
+Ran 44 tests
 OK
 ```
 
@@ -360,12 +360,16 @@ Minor release candidates:
 
 ### v0.3.0
 
-Potential writeback preview release:
+Planned optional semantic retrieval release:
 
-- proposal-only write tools
-- diff preview generation
-- checksum-gated apply design prototype
-- no automatic apply by default
+- provider-neutral embeddings and deterministic chunks
+- derived embedding index and hybrid retrieval modes
+- optional local model adapter with cache-only safety defaults
+- approved-model Recall@5, MRR, latency, index-size, privacy, and fallback gates
+
+Do not create the `v0.3.0` tag or GitHub Release until all planned semantic
+features and release gates are complete. Writeback remains a later, separately
+reviewed release and is not folded into this tag merely to advance the version.
 
 ## Decision
 

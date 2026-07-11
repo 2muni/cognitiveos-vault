@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
+import math
 import sqlite3
 import sys
 import tempfile
@@ -14,6 +16,15 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from cognitiveos.cli import main_index, main_search
+from cognitiveos.embeddings import (
+    EmbeddingConfigurationError,
+    EmbeddingIdentity,
+    EmbeddingProvider,
+    EmbeddingProviderError,
+    EmbeddingValidationError,
+    embed_texts,
+    provider_identity,
+)
 from cognitiveos.indexer import VaultIndex
 from cognitiveos.mcp_server import handle_message
 from cognitiveos.models import SearchResult
@@ -23,6 +34,42 @@ from cognitiveos.safety import safe_resolve_inside
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+
+class DeterministicTestEmbeddingProvider:
+    provider_id = "test"
+    model_id = "sha256-vector"
+    model_revision = "v1"
+    dimension = 4
+
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        self.call_count += 1
+        vectors: list[list[float]] = []
+        for text in texts:
+            digest = hashlib.sha256(text.encode("utf-8")).digest()
+            vector = [(digest[index] / 127.5) - 1.0 for index in range(self.dimension)]
+            norm = math.sqrt(sum(value * value for value in vector))
+            vectors.append([value / norm for value in vector])
+        return vectors
+
+
+class StaticEmbeddingProvider:
+    provider_id = "test"
+    model_id = "static"
+    model_revision = "v1"
+    dimension = 3
+
+    def __init__(self, output: object = None, error: Exception | None = None) -> None:
+        self.output = output
+        self.error = error
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if self.error is not None:
+            raise self.error
+        return self.output  # type: ignore[return-value]
 
 
 class CognitiveOSTestCase(unittest.TestCase):
@@ -109,6 +156,68 @@ class SafetyTests(CognitiveOSTestCase):
     def test_rejects_path_outside_vault(self) -> None:
         with self.assertRaises(ValueError):
             safe_resolve_inside(self.root, "../outside.md")
+
+
+class EmbeddingProviderTests(unittest.TestCase):
+    def test_provider_identity_and_deterministic_batch(self) -> None:
+        provider = DeterministicTestEmbeddingProvider()
+
+        self.assertIsInstance(provider, EmbeddingProvider)
+        self.assertEqual(
+            provider_identity(provider),
+            EmbeddingIdentity("test", "sha256-vector", "v1", 4),
+        )
+        first = embed_texts(provider, ["한글 semantic retrieval", "Markdown evidence"])
+        second = embed_texts(provider, ["한글 semantic retrieval", "Markdown evidence"])
+
+        self.assertEqual(first, second)
+        self.assertEqual(len(first), 2)
+        self.assertTrue(all(len(vector) == 4 for vector in first))
+        self.assertTrue(all(math.isclose(sum(value * value for value in vector), 1.0) for vector in first))
+
+    def test_empty_batch_does_not_call_provider(self) -> None:
+        provider = DeterministicTestEmbeddingProvider()
+
+        self.assertEqual(embed_texts(provider, []), [])
+        self.assertEqual(provider.call_count, 0)
+
+    def test_invalid_identity_and_input_are_rejected(self) -> None:
+        with self.assertRaises(EmbeddingConfigurationError):
+            EmbeddingIdentity("", "model", "v1", 3)
+        with self.assertRaises(EmbeddingConfigurationError):
+            EmbeddingIdentity("provider", "model", "v1", True)
+
+        identity_only = type(
+            "IdentityOnly",
+            (),
+            {"provider_id": "test", "model_id": "model", "model_revision": "v1", "dimension": 3},
+        )()
+        with self.assertRaises(EmbeddingConfigurationError):
+            embed_texts(identity_only, ["text"])  # type: ignore[arg-type]
+
+        provider = DeterministicTestEmbeddingProvider()
+        for invalid in ("text", [""], ["   "], [1]):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(EmbeddingConfigurationError):
+                    embed_texts(provider, invalid)  # type: ignore[arg-type]
+
+    def test_provider_failures_and_invalid_vectors_are_rejected(self) -> None:
+        with self.assertRaises(EmbeddingProviderError) as failure:
+            embed_texts(StaticEmbeddingProvider(error=RuntimeError("secret input")), ["private note"])
+        self.assertNotIn("private note", str(failure.exception))
+        self.assertNotIn("secret input", str(failure.exception))
+
+        invalid_outputs = (
+            [],
+            [[1.0, 2.0]],
+            [[1.0, float("nan"), 2.0]],
+            [[1.0, True, 2.0]],
+            [[0.0, 0.0, 0.0]],
+        )
+        for output in invalid_outputs:
+            with self.subTest(output=output):
+                with self.assertRaises(EmbeddingValidationError):
+                    embed_texts(StaticEmbeddingProvider(output=output), ["text"])
 
 
 class IndexTests(CognitiveOSTestCase):

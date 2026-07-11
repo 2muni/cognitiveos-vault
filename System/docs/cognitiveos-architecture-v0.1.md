@@ -53,6 +53,7 @@ Vault Markdown
   -> scanner
   -> parser
   -> SQLite/FTS index
+  -> optional derived embedding index
   -> retrieval API
   -> context pack
   -> MCP tools/resources
@@ -62,3 +63,8 @@ Vault Markdown
 ## Permission Boundary
 
 The vault root is the maximum read boundary. All path access must resolve inside the configured vault root. The implementation must reject absolute paths or traversal attempts that escape the vault.
+
+The optional embedding layer is specified in
+`System/docs/embeddings-design-v0.3.md`. It is disabled by default, stored
+separately from the lexical index, and may never replace Markdown or prevent
+lexical retrieval from operating.

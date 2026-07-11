@@ -430,3 +430,38 @@ Verification:
 - 22 automated tests cover token estimation, budget enforcement, deterministic
   source selection, MCP validation, and CLI formats
 - actual vault verification must preserve user Markdown checksums
+
+### Decision: Optional Embeddings Stay Derived and Opt-in
+
+The optional semantic retrieval design is recorded in
+`System/docs/embeddings-design-v0.3.md`.
+
+Decision:
+
+- keep embeddings disabled by default
+- store vectors in a separate Git-ignored SQLite database
+- require explicit provider, model, revision, and dimension identity
+- use deterministic Markdown block chunks and checksum-based incremental builds
+- keep SQLite/FTS as the default and fallback retrieval path
+- expose future `off | auto | required` semantic modes
+- use reciprocal rank fusion instead of comparing lexical and vector scores
+- perform builds only through an explicit CLI command
+- prohibit automatic model downloads and background embedding jobs
+- require a separate privacy review for remote embedding adapters
+
+Rationale:
+
+Semantic retrieval can improve recall, but it must not weaken the local-first,
+Markdown-first, read-only, and evidence-grounded guarantees established in v0.2.
+
+Implementation checkpoint:
+
+- add the provider-neutral interface in `src/cognitiveos/embeddings.py`
+- validate explicit provider, model, revision, and positive dimension identity
+- validate batch inputs before provider calls
+- reject wrong vector counts, dimensions, non-numeric values, non-finite values,
+  and zero vectors
+- wrap provider failures without including note content or provider exception text
+- use a deterministic SHA-256-derived provider only inside tests
+- keep storage, production adapters, CLI, and semantic retrieval deferred
+- expand the automated suite to 26 passing tests

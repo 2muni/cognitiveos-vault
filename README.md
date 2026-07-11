@@ -24,11 +24,12 @@ Implemented:
 - structured context packs
 - deterministic token budgets and evidence allocation
 - explicit text/JSON CLI output formats
+- provider-neutral embedding boundary with strict output validation
 - writeback permission design
 
 Deferred:
 
-- vector search
+- embedding storage, model adapters, and vector search
 - graph database
 - local LLM calls
 - writeback tools
@@ -101,7 +102,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 22 tests
+Ran 26 tests
 OK
 ```
 
@@ -182,6 +183,15 @@ The implementation-vs-roadmap status is maintained in:
 ```text
 System/docs/roadmap-v0.1.md
 ```
+
+The approved design for future opt-in semantic retrieval is maintained in:
+
+```text
+System/docs/embeddings-design-v0.3.md
+```
+
+The provider-neutral interface is implemented, but embedding storage, model
+adapters, and semantic retrieval remain disabled and unavailable by default.
 
 ## Release Policy
 

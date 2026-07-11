@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `22` unit tests
+- `26` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -257,14 +257,28 @@ Current smoke verification:
 
 Phase 7: optional semantic retrieval design.
 
-Status: Planned. Implementation is not part of v0.2.
+Status: Design and provider boundary complete. Storage and retrieval
+implementation are not part of v0.2.
 
 Recommended tasks:
 
-- design optional embeddings without changing Markdown source-of-truth rules
-- keep SQLite/FTS and metadata retrieval as the default path
-- define fallback behavior for missing or corrupt derived embedding indexes
+- optional embedding storage, chunking, provider, hybrid ranking, and fallback
+  contracts are documented in `System/docs/embeddings-design-v0.3.md`
+- provider-neutral identity, batch, and vector validation are implemented in
+  `src/cognitiveos/embeddings.py`
+- deterministic tests cover provider identity, stable output, failure wrapping,
+  count, dimension, numeric, finite-value, and zero-vector validation
+- SQLite/FTS and metadata retrieval remain the default path
+- missing, stale, incompatible, and corrupt embedding indexes have explicit
+  `off | auto | required` behavior
 - revisit writeback only after the read-only retrieval boundary remains stable
+
+Next implementation gate:
+
+- implement the separate derived embedding database and explicit CLI builder
+- implement deterministic Markdown chunking and stable chunk ids
+- keep semantic retrieval disabled by default
+- pass the privacy, fallback, lexical non-regression, and source checksum gates
 
 Release policy:
 

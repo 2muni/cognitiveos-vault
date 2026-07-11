@@ -5,17 +5,20 @@ import hashlib
 import json
 import math
 import sqlite3
+import struct
 import sys
 import tempfile
 import unittest
 from contextlib import closing
+from contextlib import redirect_stderr
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from cognitiveos.cli import main_index, main_search
+import cognitiveos.cli as cognitiveos_cli
+from cognitiveos.cli import main_embed, main_index, main_search
 from cognitiveos.embedding_chunks import (
     CHUNKER_VERSION,
     chunk_note,
@@ -30,6 +33,12 @@ from cognitiveos.embeddings import (
     EmbeddingValidationError,
     embed_texts,
     provider_identity,
+)
+from cognitiveos.embedding_index import (
+    EmbeddingIndexBuilder,
+    embedding_index_status,
+    pack_vector,
+    unpack_vector,
 )
 from cognitiveos.indexer import VaultIndex
 from cognitiveos.mcp_server import handle_message
@@ -50,9 +59,11 @@ class DeterministicTestEmbeddingProvider:
 
     def __init__(self) -> None:
         self.call_count = 0
+        self.embedded_text_count = 0
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         self.call_count += 1
+        self.embedded_text_count += len(texts)
         vectors: list[list[float]] = []
         for text in texts:
             digest = hashlib.sha256(text.encode("utf-8")).digest()
@@ -324,6 +335,176 @@ Semantic evidence stays grounded in Markdown.
             with self.subTest(note_id=note_id, checksum=checksum, chunk_index=chunk_index):
                 with self.assertRaises(EmbeddingConfigurationError):
                     stable_chunk_id(note_id, checksum, chunk_index)
+
+
+class EmbeddingIndexTests(CognitiveOSTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.embedding_db_path = self.root / ".pkm-index" / "embeddings.sqlite3"
+
+    def test_vector_serialization_is_little_endian_and_validated(self) -> None:
+        blob = pack_vector([1.0, -2.5, 3.25])
+
+        self.assertEqual(blob, struct.pack("<3f", 1.0, -2.5, 3.25))
+        self.assertEqual(unpack_vector(blob, 3), [1.0, -2.5, 3.25])
+        for invalid_blob, dimension in ((b"", 1), (blob, 2), (struct.pack("<f", float("nan")), 1)):
+            with self.subTest(invalid_blob=invalid_blob, dimension=dimension):
+                with self.assertRaises(ValueError):
+                    unpack_vector(invalid_blob, dimension)
+        with self.assertRaises(ValueError):
+            pack_vector([0.0, 0.0])
+
+    def test_full_incremental_and_forced_rebuilds(self) -> None:
+        self.write_note("alpha.md", "# Alpha\n\nSemantic alpha evidence.")
+        self.write_note("beta.md", "# Beta\n\nSemantic beta evidence.")
+
+        first_provider = DeterministicTestEmbeddingProvider()
+        first = EmbeddingIndexBuilder(self.root, first_provider, self.embedding_db_path).build()
+        self.assertEqual(first.note_count, 2)
+        self.assertEqual(first.chunk_count, 2)
+        self.assertEqual(first.embedded_chunk_count, 2)
+        self.assertEqual(first.reused_chunk_count, 0)
+        self.assertEqual(first_provider.embedded_text_count, 2)
+
+        status = embedding_index_status(self.embedding_db_path)
+        self.assertEqual(status["status"], "completed")
+        self.assertEqual(status["chunk_count"], 2)
+        self.assertEqual(status["chunker_version"], CHUNKER_VERSION)
+
+        incremental_provider = DeterministicTestEmbeddingProvider()
+        incremental = EmbeddingIndexBuilder(
+            self.root, incremental_provider, self.embedding_db_path
+        ).build()
+        self.assertEqual(incremental.reused_chunk_count, 2)
+        self.assertEqual(incremental.embedded_chunk_count, 0)
+        self.assertEqual(incremental_provider.call_count, 0)
+
+        rebuild_provider = DeterministicTestEmbeddingProvider()
+        rebuilt = EmbeddingIndexBuilder(self.root, rebuild_provider, self.embedding_db_path).build(rebuild=True)
+        self.assertEqual(rebuilt.reused_chunk_count, 0)
+        self.assertEqual(rebuilt.embedded_chunk_count, 2)
+        self.assertEqual(rebuild_provider.embedded_text_count, 2)
+
+    def test_incremental_build_reembeds_only_changed_notes(self) -> None:
+        alpha = self.write_note("alpha.md", "# Alpha\n\nOriginal alpha.")
+        self.write_note("beta.md", "# Beta\n\nStable beta.")
+        EmbeddingIndexBuilder(
+            self.root, DeterministicTestEmbeddingProvider(), self.embedding_db_path
+        ).build()
+
+        alpha.write_text("# Alpha\n\nChanged alpha.", encoding="utf-8")
+        provider = DeterministicTestEmbeddingProvider()
+        result = EmbeddingIndexBuilder(self.root, provider, self.embedding_db_path).build()
+
+        self.assertEqual(result.reused_chunk_count, 1)
+        self.assertEqual(result.embedded_chunk_count, 1)
+        self.assertEqual(provider.embedded_text_count, 1)
+
+    def test_failed_build_preserves_last_valid_database(self) -> None:
+        note = self.write_note("note.md", "# Note\n\nInitial content.")
+        EmbeddingIndexBuilder(
+            self.root, DeterministicTestEmbeddingProvider(), self.embedding_db_path
+        ).build()
+        before = self.embedding_db_path.read_bytes()
+        note.write_text("# Note\n\nChanged content.", encoding="utf-8")
+
+        failing = StaticEmbeddingProvider(error=RuntimeError("provider unavailable"))
+        with self.assertRaises(EmbeddingProviderError):
+            EmbeddingIndexBuilder(self.root, failing, self.embedding_db_path).build(rebuild=True)
+
+        self.assertEqual(self.embedding_db_path.read_bytes(), before)
+        self.assertFalse((self.embedding_db_path.parent / ".embeddings.sqlite3.tmp").exists())
+        self.assertEqual(embedding_index_status(self.embedding_db_path)["status"], "completed")
+
+    def test_status_and_cli_json_contract(self) -> None:
+        missing = embedding_index_status(self.embedding_db_path)
+        self.assertEqual(missing["status"], "missing")
+
+        corrupt = self.root / ".pkm-index" / "corrupt.sqlite3"
+        corrupt.parent.mkdir(parents=True, exist_ok=True)
+        corrupt.write_bytes(b"not sqlite")
+        self.assertEqual(embedding_index_status(corrupt)["status"], "invalid")
+
+        self.write_note("한글.md", "# 한글\n\nSemantic evidence.")
+        error_output = io.StringIO()
+        with patch.dict(
+            cognitiveos_cli.EMBEDDING_PROVIDER_FACTORIES,
+            {},
+            clear=True,
+        ), patch.object(
+            sys,
+            "argv",
+            [
+                "cognitiveos-embed",
+                "--vault-root",
+                str(self.root),
+                "--db",
+                str(self.embedding_db_path),
+                "--provider",
+                "missing",
+                "--model",
+                "model",
+                "--revision",
+                "v1",
+            ],
+        ), redirect_stderr(error_output):
+            with self.assertRaises(SystemExit):
+                main_embed()
+        self.assertIn("no provider is enabled by default", error_output.getvalue())
+        self.assertFalse(self.embedding_db_path.exists())
+
+        build_output = io.StringIO()
+        with patch.dict(
+            cognitiveos_cli.EMBEDDING_PROVIDER_FACTORIES,
+            {"test": lambda model, revision: DeterministicTestEmbeddingProvider()},
+            clear=True,
+        ), patch.object(
+            sys,
+            "argv",
+            [
+                "cognitiveos-embed",
+                "--vault-root",
+                str(self.root),
+                "--db",
+                str(self.embedding_db_path),
+                "--provider",
+                "test",
+                "--model",
+                "sha256-vector",
+                "--revision",
+                "v1",
+                "--format",
+                "json",
+            ],
+        ), redirect_stdout(build_output):
+            main_embed()
+        build_payload = json.loads(build_output.getvalue())
+        self.assertEqual(build_payload["provider_id"], "test")
+        self.assertEqual(build_payload["embedded_chunk_count"], 1)
+
+        status_output = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cognitiveos-embed",
+                "--vault-root",
+                str(self.root),
+                "--db",
+                str(self.embedding_db_path),
+                "--status",
+                "--format",
+                "json",
+            ],
+        ), redirect_stdout(status_output):
+            main_embed()
+        status_payload = json.loads(status_output.getvalue())
+        self.assertEqual(status_payload["status"], "completed")
+        self.assertEqual(status_payload["chunk_count"], 1)
+
+        with sqlite3.connect(self.embedding_db_path) as conn:
+            conn.execute("UPDATE embedding_chunks SET vector = ?", (b"broken",))
+        self.assertEqual(embedding_index_status(self.embedding_db_path)["status"], "invalid")
 
 
 class IndexTests(CognitiveOSTestCase):

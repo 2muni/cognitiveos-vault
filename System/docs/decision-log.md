@@ -486,3 +486,25 @@ Verification:
   hashes, checksum changes, hard limits, overlap, long blocks, line ranges,
   empty notes, heading-only notes, and invalid chunk limits
 - the automated suite passes 32 tests
+
+### Implementation Checkpoint: Derived Embedding Index Builder
+
+Decision:
+
+- store embedding builds in `.pkm-index/cognitiveos-embeddings.sqlite3`
+- keep this database separate from the lexical SQLite/FTS index
+- encode vectors as little-endian float32 blobs
+- require exact chunk content hash and complete provider identity for reuse
+- build and validate a temporary database before atomic publication
+- preserve the last valid database when provider or validation steps fail
+- expose explicit full rebuild and read-only status CLI paths
+- keep the provider registry empty in the core package
+- inject the deterministic provider only in tests
+- keep semantic retrieval and MCP embedding build tools disabled
+
+Verification:
+
+- tests cover vector encoding, missing/corrupt status, full build, unchanged
+  reuse, changed-note re-embedding, forced rebuild, atomic failure preservation,
+  and CLI JSON output
+- the automated suite passes 37 tests

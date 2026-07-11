@@ -8,8 +8,8 @@ but never replace Markdown, frontmatter, links, SQLite/FTS, or evidence paths as
 the source of truth.
 
 Design status: complete. Implementation status: provider boundary and
-deterministic chunking complete; storage, adapters, CLI, and hybrid retrieval
-deferred.
+deterministic chunking, separate SQLite storage, incremental/full builder, and
+status/build CLI complete; production adapters and hybrid retrieval deferred.
 
 ## Invariants
 
@@ -159,6 +159,19 @@ Incremental build rules:
 
 `--rebuild` discards reuse eligibility and regenerates all vectors. Neither mode
 modifies source Markdown.
+
+The storage and builder implementation lives in
+`src/cognitiveos/embedding_index.py`; the CLI entry point is
+`cognitiveos.cli:main_embed`. Builds embed into a temporary database, validate
+SQLite integrity, build metadata, provider identity, note/chunk counts, vector
+dimensions, finite values, and nonzero vectors, then publish with an atomic
+replace. Incremental reuse requires matching chunk id, content hash, provider,
+model, immutable revision, dimension, and chunker version. A provider failure
+leaves the last valid database byte-for-byte unchanged.
+
+The core provider registry is empty. Tests inject the deterministic provider;
+ordinary installations cannot build embeddings until a production adapter is
+implemented and explicitly registered.
 
 ## Retrieval Modes
 

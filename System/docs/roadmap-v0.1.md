@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `32` unit tests
+- `37` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -257,8 +257,9 @@ Current smoke verification:
 
 Phase 7: optional semantic retrieval design.
 
-Status: Design, provider boundary, and deterministic chunker complete. Storage
-and retrieval implementation are not part of v0.2.
+Status: Design, provider boundary, deterministic chunker, separate derived
+storage, builder, and status/build CLI complete. Production adapters and hybrid
+retrieval are not part of v0.2.
 
 Recommended tasks:
 
@@ -270,6 +271,11 @@ Recommended tasks:
   count, dimension, numeric, finite-value, and zero-vector validation
 - `markdown-blocks-v1` implements frontmatter exclusion, heading context,
   character limits, overlap, line ranges, content hashes, and stable chunk ids
+- separate SQLite storage validates build identity, counts, integrity, and vector
+  encoding before atomic publish
+- incremental builds reuse exact compatible chunks; `--rebuild` regenerates all
+  vectors; failed builds preserve the last valid index
+- `cognitiveos-embed --status --format text|json` inspects state without building
 - SQLite/FTS and metadata retrieval remain the default path
 - missing, stale, incompatible, and corrupt embedding indexes have explicit
   `off | auto | required` behavior
@@ -277,7 +283,9 @@ Recommended tasks:
 
 Next implementation gate:
 
-- implement the separate derived embedding database and explicit CLI builder
+- implement and privacy-review the first production local model adapter
+- add fixed Korean, English, and mixed-language retrieval evaluation fixtures
+- implement `semantic_mode=off|auto|required` and RRF hybrid ranking
 - keep semantic retrieval disabled by default
 - pass the privacy, fallback, lexical non-regression, and source checksum gates
 

@@ -26,6 +26,8 @@ Implemented:
 - explicit text/JSON CLI output formats
 - provider-neutral embedding boundary with strict output validation
 - deterministic `markdown-blocks-v1` embedding chunker and stable chunk ids
+- separate embedding SQLite builder with incremental reuse and atomic publish
+- read-only embedding index status CLI
 - writeback permission design
 
 Deferred:
@@ -103,7 +105,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 32 tests
+Ran 37 tests
 OK
 ```
 
@@ -192,8 +194,19 @@ System/docs/embeddings-design-v0.3.md
 ```
 
 The provider-neutral interface and deterministic chunker are implemented, but
-embedding storage, model adapters, and semantic retrieval remain disabled and
-unavailable by default.
+the implementation also includes a separate derived SQLite builder and status
+CLI. No production model adapter is installed, so semantic retrieval remains
+disabled and unavailable by default.
+
+Inspect local embedding status without creating an index or calling a provider:
+
+```bash
+PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_embed; main_embed()" --status --format json
+```
+
+Building requires an explicitly registered provider plus exact model and
+revision values. The core package registers no provider and performs no model
+download or network request by default.
 
 ## Release Policy
 

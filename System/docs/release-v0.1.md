@@ -80,7 +80,7 @@ Current verification snapshot:
 
 | Check | Result |
 | --- | --- |
-| Unit tests | Pass, `32` tests |
+| Unit tests | Pass, `37` tests |
 | Actual vault index | Pass; note count is device-dependent |
 | MCP `initialize` | Pass, server name `cognitiveos` |
 | MCP `tools/list` | Pass, `9` tools |
@@ -95,7 +95,7 @@ Current verification command:
 Expected:
 
 ```text
-Ran 32 tests
+Ran 37 tests
 OK
 ```
 

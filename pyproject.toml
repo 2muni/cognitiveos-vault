@@ -29,5 +29,12 @@ cognitiveos-evaluate-embeddings = "cognitiveos.evaluation:main_evaluate"
 testpaths = ["tests"]
 pythonpath = ["src"]
 
+[tool.hatch.build]
+exclude = [
+  "/.pkm-index",
+  "/.venv*",
+  "/dist",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/cognitiveos"]

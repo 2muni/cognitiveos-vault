@@ -716,3 +716,19 @@ Decision:
 - preserve historical alpha verification records as historical evidence
 - rerun every release gate against the exact release commit
 - stop before tag, push, and GitHub Release for explicit publication approval
+
+### v0.3 Final Packaging Fix
+
+Finding:
+
+- the exact release worktree built successfully before the Intel embedding
+  environment existed
+- after `.venv-embeddings312` was created, Hatch attempted to include that
+  environment in the sdist and rejected its external absolute Python symlink
+
+Decision:
+
+- ignore `.venv-*` directories as repository-local runtime artifacts
+- exclude `.venv*`, `.pkm-index`, and `dist` from every Hatch build target
+- require the final sdist build to pass while both default and embedding virtual
+  environments are present

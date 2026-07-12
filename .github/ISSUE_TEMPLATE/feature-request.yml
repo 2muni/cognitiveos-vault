@@ -1,0 +1,52 @@
+name: Feature request
+description: Propose an improvement while preserving CognitiveOS's Markdown-first and read-only defaults.
+title: "feature: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user outcome, not private vault content. Do not include personal notes, paths, credentials, or model-cache locations.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow
+      description: What safe, general workflow is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Explain the desired behavior, inputs, and evidence returned to the user.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Lexical retrieval or context packs
+        - Optional semantic retrieval
+        - MCP read-only tools
+        - CLI or packaging
+        - Documentation
+        - Future writeback design
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe existing workarounds or why they are insufficient.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety and scope
+      options:
+        - label: This request does not require exposing private vault content.
+          required: true
+        - label: I understand that writeback, rename, delete, and migration features require separate approval and design review.
+          required: true

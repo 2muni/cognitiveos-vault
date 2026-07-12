@@ -85,7 +85,7 @@ verified on Python 3.14.6.
 - actual vault warm required-mode median: 71.84 ms across six smoke queries
 - SQLite integrity: `ok`; private Markdown aggregate checksum: unchanged
 - clean detached worktree installs and tests both supported runtimes
-- wheel and sdist build; wheel-only installation exposes all four CLI entries
+- wheel and sdist build; wheel-only installation exposes all five CLI entries
 
 Note counts are device-dependent and are not fixed release criteria.
 
@@ -105,9 +105,9 @@ Note counts are device-dependent and are not fixed release criteria.
 - remote embedding providers and semantic-by-default behavior
 - other-device and client-UI validation
 
-## Publication Gate
+## Publication Record
 
-Before publication, change package identity to `0.3.0`, rerun all release-commit
-checks, confirm documentation and metadata agreement, and obtain explicit
-approval for commit, annotated tag, push, and GitHub Release. Historical tags
+The `0.3.0` release commit was explicitly approved, tagged, pushed, and
+published on 2026-07-12. The GitHub Release provides a wheel and source
+distribution whose SHA-256 values are listed in the README. Historical tags
 must not be moved.

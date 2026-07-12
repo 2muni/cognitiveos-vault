@@ -2,8 +2,8 @@
 
 CognitiveOS is a Markdown-first, local-first, MCP-addressable PKM system for an Obsidian vault.
 
-The current implementation is unreleased read-only v0.3 development based on
-the published v0.2 retrieval release:
+The current implementation is the published read-only semantic-retrieval
+release v0.3.0:
 
 - scans Markdown notes
 - parses frontmatter, headings, wikilinks, and Markdown links
@@ -74,7 +74,7 @@ Read-only tools:
 - `propose_moc`
 - `build_context_pack`
 
-No MCP tool writes to Markdown in v0.2.
+No MCP tool writes to Markdown in v0.3.0.
 
 ## Intel Mac Quick Start
 
@@ -97,6 +97,34 @@ System/docs/device-handoff-intel-mac-v0.1.md
 ```
 
 Private note folders and assets are not transferred by Git. Restore them through iCloud Drive, Obsidian Sync, or a separate encrypted transfer before rebuilding the index.
+
+## Install v0.3.0 Release Assets
+
+The GitHub Release provides a universal Python wheel and source distribution:
+
+```text
+https://github.com/2muni/cognitiveos-vault/releases/tag/v0.3.0
+```
+
+Download either asset, verify its SHA-256 digest, then install the wheel with
+Python 3.11 or newer:
+
+```bash
+shasum -a 256 cognitiveos-0.3.0-py3-none-any.whl
+python -m pip install cognitiveos-0.3.0-py3-none-any.whl
+```
+
+Expected release-asset digests:
+
+```text
+7360c7b8ef26bfa9d57029402244a224453cce021ef34add6ca141422ff28cbe  cognitiveos-0.3.0-py3-none-any.whl
+7d84e96276373fef5128b82b905b83b9183f393927a35d633f28432c4656e624  cognitiveos-0.3.0.tar.gz
+```
+
+The wheel exposes `cognitiveos-index`, `cognitiveos-search`,
+`cognitiveos-mcp`, `cognitiveos-embed`, and `cognitiveos-evaluate-embeddings`.
+For local development or the optional semantic runtime, clone the repository
+and use the environment setup described below instead.
 
 ## Run Tests
 
@@ -169,7 +197,7 @@ Open the vault root in VS Code and confirm the Codex extension loads the `cognit
 
 ## Writeback Policy
 
-Writeback is not implemented in v0.2.
+Writeback is not implemented in v0.3.0.
 
 The future writeback design is documented in:
 
@@ -267,8 +295,7 @@ The v0.1 release checklist, version policy, and tag policy are maintained in:
 System/docs/release-v0.1.md
 ```
 
-The current v0.3 feature-completeness audit and remaining release operations are
-maintained in:
+The v0.3 release readiness and publication record are maintained in:
 
 ```text
 System/docs/release-v0.3.md
@@ -288,7 +315,7 @@ The v0.2.0 release notes are maintained in:
 System/docs/release-notes-v0.2.0.md
 ```
 
-The unpublished v0.3.0 release-note draft is maintained in:
+The published v0.3.0 release notes are maintained in:
 
 ```text
 System/docs/release-notes-v0.3.0.md

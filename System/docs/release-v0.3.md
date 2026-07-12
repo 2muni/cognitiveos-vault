@@ -6,13 +6,12 @@ Feature status: complete.
 
 Release status: published on 2026-07-12.
 
-Current release-candidate identity: `0.3.0`.
+Published release identity: `0.3.0`.
 
-Latest published stable release: `v0.2.0`.
+Latest published stable release: `v0.3.0`.
 
-Do not create `v0.3.0`, move an existing tag, or publish a GitHub Release until
-the remaining release operations in this document are complete and explicitly
-approved by the user.
+Do not move the existing `v0.3.0` tag. Follow-on documentation changes are
+published on `main` without changing the release commit.
 
 ## Implemented v0.3 Scope
 
@@ -55,7 +54,7 @@ approved by the user.
 | Writeback remains disabled | Pass | environment verification |
 | Clean detached worktree install | Pass | commit `9cc89f8` |
 | Wheel and sdist build | Pass | `cognitiveos-0.3.0a1` artifacts |
-| Wheel-only import and four CLI entry points | Pass | fresh Python 3.14 environment |
+| Wheel-only import and five CLI entry points | Pass | fresh Python 3.14 environment |
 | Clean-worktree pinned-model evaluation | Pass | forced offline, all quality gates |
 
 Other-device and Codex/VS Code visual discovery checks remain explicitly
@@ -72,12 +71,12 @@ These are release operations, not missing v0.3 features:
 - [x] run both default Python and supported local-embedding runtime tests
 - [x] build wheel and sdist, install the wheel alone, and verify all CLI entries
 - [x] confirm the integrated local `main` history and working tree are clean
-- [ ] rebuild lexical and embedding indexes from the release commit
-- [ ] repeat MCP initialize, 9-tool list, invalid call, required semantic query,
+- [x] rebuild lexical and embedding indexes from the release commit
+- [x] repeat MCP initialize, 9-tool list, invalid call, required semantic query,
       writeback-disabled, SQLite integrity, and private checksum checks
 - [x] update package and MCP identity from `0.3.0a1` to `0.3.0`
 - [x] draft `System/docs/release-notes-v0.3.0.md`
-- [ ] verify README, roadmap, schemas, release notes, and package metadata agree
+- [x] verify README, roadmap, schemas, release notes, and package metadata agree
 - [x] obtain explicit user approval for the final commit, annotated tag, push,
       and GitHub Release
 
@@ -88,6 +87,7 @@ These are release operations, not missing v0.3 features:
 - published release: `https://github.com/2muni/cognitiveos-vault/releases/tag/v0.3.0`
 - release draft: false
 - prerelease: false
+- release assets: universal wheel and source distribution, verified by SHA-256
 
 ## Release Decision Rule
 
@@ -105,9 +105,12 @@ indexes.
 - Python 3.14.6 fresh environment installed `.[dev,mcp]`
 - pytest passed 53 tests and 26 subtests
 - environment verification exposed 9 tools and writeback remained disabled
-- package, installed package, and MCP versions all reported `0.3.0a1`
-- `cognitiveos-index`, `cognitiveos-search`, `cognitiveos-embed`, and
-  `cognitiveos-evaluate-embeddings` entry points loaded successfully
+- package, installed package, and MCP versions all reported `0.3.0a1` during
+  the pre-release candidate verification; the final release verification
+  reported `0.3.0`
+- `cognitiveos-index`, `cognitiveos-search`, `cognitiveos-mcp`,
+  `cognitiveos-embed`, and `cognitiveos-evaluate-embeddings` entry points
+  loaded successfully
 - wheel and sdist built successfully
 - the wheel installed alone in a second clean environment and imported as
   `0.3.0a1`

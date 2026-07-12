@@ -769,8 +769,9 @@ class EmbeddingIndexTests(CognitiveOSTestCase):
         self.assertEqual(status_payload["status"], "completed")
         self.assertEqual(status_payload["chunk_count"], 1)
 
-        with sqlite3.connect(self.embedding_db_path) as conn:
+        with closing(sqlite3.connect(self.embedding_db_path)) as conn:
             conn.execute("UPDATE embedding_chunks SET vector = ?", (b"broken",))
+            conn.commit()
         self.assertEqual(embedding_index_status(self.embedding_db_path)["status"], "invalid")
 
 

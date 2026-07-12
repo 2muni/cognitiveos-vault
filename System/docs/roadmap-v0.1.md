@@ -306,7 +306,7 @@ Release policy:
 
 - `System/docs/release-v0.1.md`
 - current release-candidate package version: `0.3.0`
-- latest published stable tag and GitHub Release: `v0.2.0`
+- latest published stable tag and GitHub Release: `v0.3.0`
 
 Recommended model:
 

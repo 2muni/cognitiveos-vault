@@ -1,6 +1,6 @@
 # CognitiveOS v0.3.0 Release Notes
 
-Status: Release candidate. Publication, tag, and push remain pending explicit approval.
+Status: Published on 2026-07-12. Tag: `v0.3.0`.
 
 ## Summary
 

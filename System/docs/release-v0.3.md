@@ -4,7 +4,7 @@
 
 Feature status: complete.
 
-Release status: release commit preparation; not yet published.
+Release status: published on 2026-07-12.
 
 Current release-candidate identity: `0.3.0`.
 
@@ -78,15 +78,23 @@ These are release operations, not missing v0.3 features:
 - [x] update package and MCP identity from `0.3.0a1` to `0.3.0`
 - [x] draft `System/docs/release-notes-v0.3.0.md`
 - [ ] verify README, roadmap, schemas, release notes, and package metadata agree
-- [ ] obtain explicit user approval for the final commit, annotated tag, push,
+- [x] obtain explicit user approval for the final commit, annotated tag, push,
       and GitHub Release
+
+## Publication Record
+
+- release commit: `4f52367681387db474c4b79b02c3a06cfa45298a`
+- annotated tag: `v0.3.0`
+- published release: `https://github.com/2muni/cognitiveos-vault/releases/tag/v0.3.0`
+- release draft: false
+- prerelease: false
 
 ## Release Decision Rule
 
 The implementation may be called feature-complete now. It may be called a
 release candidate only after branch integration and fresh-checkout verification.
-It may be called released only after the exact `0.3.0` commit is approved,
-tagged, pushed, and published without moving historical tags.
+It is released because the exact `0.3.0` commit was approved, tagged, pushed,
+and published without moving historical tags.
 
 ## Clean Worktree Verification Record
 

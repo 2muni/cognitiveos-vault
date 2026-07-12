@@ -303,8 +303,8 @@ Current package version:
 Published stable release:
 
 ```text
-v0.2.0
+v0.3.0
 ```
 
-`v0.3.0` will remain unpublished until the planned semantic retrieval work,
-production-model evaluation, privacy checks, and release gates are complete.
+`v0.3.0` was published on 2026-07-12 after the planned semantic retrieval,
+model evaluation, privacy, packaging, and release gates completed.

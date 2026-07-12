@@ -706,6 +706,23 @@ Result:
 - release scope, model identity, safety, verification, upgrade notes, and
   exclusions are captured in the release-note draft
 
+### Publication: CognitiveOS v0.3.0
+
+Result:
+
+- fast-forward release commit `4f52367681387db474c4b79b02c3a06cfa45298a`
+  to `origin/main`
+- create and push annotated tag `v0.3.0` pointing to that exact commit
+- publish the non-draft, non-prerelease GitHub Release on 2026-07-12
+- verify public tag peeling, remote main, release URL, package identity, and
+  post-release shallow clone tests
+
+Follow-up:
+
+- correct the release-note status text from release-candidate to published
+- keep the immutable `v0.3.0` tag unchanged; this correction is a separate
+  post-release documentation commit
+
 ### v0.3.0 Final Release Branch
 
 Decision:

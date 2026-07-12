@@ -705,3 +705,14 @@ Result:
 - the complete semantic history is integrated into local `main`
 - release scope, model identity, safety, verification, upgrade notes, and
   exclusions are captured in the release-note draft
+
+### v0.3.0 Final Release Branch
+
+Decision:
+
+- create `codex/v03-final-release` from integrated local `main`
+- change package and MCP identity from `0.3.0a1` to `0.3.0`
+- promote release notes from draft to release-candidate status
+- preserve historical alpha verification records as historical evidence
+- rerun every release gate against the exact release commit
+- stop before tag, push, and GitHub Release for explicit publication approval

@@ -1,6 +1,6 @@
 # CognitiveOS v0.3.0 Release Notes
 
-Status: Draft. Do not publish before the final `0.3.0` release commit is approved.
+Status: Release candidate. Publication, tag, and push remain pending explicit approval.
 
 ## Summary
 

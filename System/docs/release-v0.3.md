@@ -4,9 +4,9 @@
 
 Feature status: complete.
 
-Release status: not yet ready to publish.
+Release status: release commit preparation; not yet published.
 
-Current development identity: `0.3.0a1`.
+Current release-candidate identity: `0.3.0`.
 
 Latest published stable release: `v0.2.0`.
 
@@ -75,7 +75,7 @@ These are release operations, not missing v0.3 features:
 - [ ] rebuild lexical and embedding indexes from the release commit
 - [ ] repeat MCP initialize, 9-tool list, invalid call, required semantic query,
       writeback-disabled, SQLite integrity, and private checksum checks
-- [ ] update package and MCP identity from `0.3.0a1` to `0.3.0`
+- [x] update package and MCP identity from `0.3.0a1` to `0.3.0`
 - [x] draft `System/docs/release-notes-v0.3.0.md`
 - [ ] verify README, roadmap, schemas, release notes, and package metadata agree
 - [ ] obtain explicit user approval for the final commit, annotated tag, push,

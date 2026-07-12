@@ -99,7 +99,7 @@ Ran 53 tests
 OK
 ```
 
-Current development package version: `0.3.0a1`. The published `v0.1.0` and
+Current release-candidate package version: `0.3.0`. The published `v0.1.0` and
 `v0.2.0` tags and their historical release identities remain unchanged.
 
 ## Version Policy

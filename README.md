@@ -297,7 +297,7 @@ System/docs/release-notes-v0.3.0.md
 Current package version:
 
 ```text
-0.3.0a1
+0.3.0
 ```
 
 Published stable release:

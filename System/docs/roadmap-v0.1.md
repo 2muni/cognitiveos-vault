@@ -305,7 +305,7 @@ Release; the next public v0.3 artifact is the final approved stable release.
 Release policy:
 
 - `System/docs/release-v0.1.md`
-- current development package version: `0.3.0a1`
+- current release-candidate package version: `0.3.0`
 - latest published stable tag and GitHub Release: `v0.2.0`
 
 Recommended model:

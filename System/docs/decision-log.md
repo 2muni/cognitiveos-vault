@@ -688,3 +688,20 @@ Decision:
 - mark clean-worktree, packaging, wheel-install, and dual-runtime gates complete
 - keep main integration, final version bump, release notes, release-commit smoke,
   tag, push, and GitHub Release pending
+
+### v0.3 Local Main Integration and Release-Note Draft
+
+Decision:
+
+- fast-forward local `main` from `0f86272` to verified release-candidate commit
+  `c710d5d` without creating a merge commit
+- retain `0.3.0a1` after integration
+- create `codex/v03-release-prep` for subsequent release preparation
+- draft `System/docs/release-notes-v0.3.0.md` without publishing it
+- keep remote push, final version bump, tag, and GitHub Release pending explicit approval
+
+Result:
+
+- the complete semantic history is integrated into local `main`
+- release scope, model identity, safety, verification, upgrade notes, and
+  exclusions are captured in the release-note draft

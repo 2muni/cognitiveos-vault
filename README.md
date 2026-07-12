@@ -288,6 +288,12 @@ The v0.2.0 release notes are maintained in:
 System/docs/release-notes-v0.2.0.md
 ```
 
+The unpublished v0.3.0 release-note draft is maintained in:
+
+```text
+System/docs/release-notes-v0.3.0.md
+```
+
 Current package version:
 
 ```text

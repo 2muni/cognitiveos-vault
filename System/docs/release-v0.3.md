@@ -65,17 +65,18 @@ deferred and are not v0.3 release blockers under the approved scope.
 
 These are release operations, not missing v0.3 features:
 
-- [ ] integrate the stacked `codex/*` semantic branches into `main`
+- [x] integrate the stacked `codex/*` semantic branches into local `main`
 - [x] collect the stacked work as `codex/v03-release-candidate`
 - [x] verify the release-candidate history and working tree are clean
 - [x] run install and tests from a detached clean worktree
 - [x] run both default Python and supported local-embedding runtime tests
 - [x] build wheel and sdist, install the wheel alone, and verify all CLI entries
+- [x] confirm the integrated local `main` history and working tree are clean
 - [ ] rebuild lexical and embedding indexes from the release commit
 - [ ] repeat MCP initialize, 9-tool list, invalid call, required semantic query,
       writeback-disabled, SQLite integrity, and private checksum checks
 - [ ] update package and MCP identity from `0.3.0a1` to `0.3.0`
-- [ ] draft `System/docs/release-notes-v0.3.0.md`
+- [x] draft `System/docs/release-notes-v0.3.0.md`
 - [ ] verify README, roadmap, schemas, release notes, and package metadata agree
 - [ ] obtain explicit user approval for the final commit, annotated tag, push,
       and GitHub Release

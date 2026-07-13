@@ -230,9 +230,11 @@ personal synthesis.
 
 ### Aliases
 
-Aliases remain optional. They are not yet part of lexical FTS or backlink
-resolution. Alias search support is a separate implementation item and should
-precede any recommendation to fill aliases broadly.
+Aliases remain optional. In `0.4.0a1` development they are included in lexical
+FTS candidate generation, receive explicit alias ranking signals, and resolve
+as backlink targets. Link suggestions also recognize an existing alias link so
+they do not propose the canonical note again. The canonical title remains the
+display title and receives a stronger exact-match score than an alias.
 
 ### Confidence
 
@@ -399,7 +401,6 @@ The implementation is complete when tests cover:
 ## Deferred Implementation Decisions
 
 - indexing frontmatter `links` and `sources` as graph edges
-- including aliases in FTS and backlink resolution
 - using `updated_at` rather than mtime for freshness
 - structured citation fields and source deduplication
 - controlled vocabularies for tags and domains

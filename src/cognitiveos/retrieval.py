@@ -15,7 +15,7 @@ from .embedding_index import (
     search_embedding_index,
 )
 from .embeddings import EmbeddingError, EmbeddingProvider, embed_query, provider_identity
-from .indexer import VaultIndex, default_index_path
+from .indexer import VaultIndex, default_index_path, frontmatter_string_values
 from .models import ContextPack, SearchResult
 from .parser import parse_markdown_file
 from .safety import resolve_vault_root, safe_resolve_inside
@@ -270,6 +270,15 @@ class RetrievalService:
             if target is None:
                 raise KeyError("note not found")
             candidates = {target["note_id"], target["path"], target["title"], Path(target["path"]).stem}
+            alias_rows = conn.execute(
+                """
+                SELECT value
+                FROM note_frontmatter
+                WHERE note_id = ? AND key IN ('alias', 'aliases')
+                """,
+                (note_id,),
+            ).fetchall()
+            candidates.update(row["value"] for row in alias_rows if row["value"])
             placeholders = ",".join("?" for _ in candidates)
             rows = conn.execute(
                 f"""
@@ -305,12 +314,14 @@ class RetrievalService:
             if candidate.note_id == note_id:
                 continue
             target_names = {candidate.note_id, candidate.path, candidate.title, Path(candidate.path).stem}
+            candidate_note = self.read_note(note_id=candidate.note_id)
+            target_names.update(frontmatter_string_values(candidate_note["frontmatter"].get("aliases")))
             if existing_targets.intersection(target_names):
                 continue
-            candidate_note = self.read_note(note_id=candidate.note_id)
             candidate_text = " ".join(
                 [
                     candidate_note["title"],
+                    *frontmatter_string_values(candidate_note["frontmatter"].get("aliases")),
                     *[heading["text"] for heading in candidate_note["headings"][:5]],
                     candidate_note["body"][:800],
                 ]
@@ -526,6 +537,12 @@ class RetrievalService:
                            FROM headings h
                            WHERE h.note_id = n.note_id
                        ), '') AS heading_text,
+                       COALESCE((
+                           SELECT group_concat(nf.value, '\n')
+                           FROM note_frontmatter nf
+                           WHERE nf.note_id = n.note_id
+                             AND nf.key IN ('alias', 'aliases')
+                       ), '') AS alias_text,
                        snippet(fts_notes, 2, '<mark>', '</mark>', '...', 24) AS matched_excerpt
                 FROM fts_notes
                 JOIN notes n ON n.note_id = fts_notes.note_id
@@ -550,9 +567,9 @@ class RetrievalService:
     ) -> list[sqlite3.Row]:
         filter_sql, filter_params = build_note_filters(note_type, status, domain, tag)
         terms = search_terms(query)
-        like_clauses = " OR ".join(["n.title LIKE ? OR f.body LIKE ?" for _ in terms])
+        like_clauses = " OR ".join(["f.title LIKE ? OR f.body LIKE ?" for _ in terms])
         if not like_clauses:
-            like_clauses = "n.title LIKE ? OR f.body LIKE ?"
+            like_clauses = "f.title LIKE ? OR f.body LIKE ?"
             terms = [query]
         like_params: list[Any] = []
         for term in terms:
@@ -567,6 +584,12 @@ class RetrievalService:
                        FROM headings h
                        WHERE h.note_id = n.note_id
                    ), '') AS heading_text,
+                   COALESCE((
+                       SELECT group_concat(nf.value, '\n')
+                       FROM note_frontmatter nf
+                       WHERE nf.note_id = n.note_id
+                         AND nf.key IN ('alias', 'aliases')
+                   ), '') AS alias_text,
                    n.body_preview AS matched_excerpt
             FROM notes n
             JOIN fts_notes f ON f.note_id = n.note_id
@@ -697,6 +720,7 @@ def search_relevance_score(query: str, row: sqlite3.Row) -> float:
     note_type = str(row["type"] or "")
     status = str(row["status"] or "")
     excerpt = str(row["matched_excerpt"] or "")
+    aliases = [alias.strip() for alias in str(row["alias_text"] or "").splitlines() if alias.strip()]
     title_terms = keyword_set(title)
     heading_terms = keyword_set(heading_text)
     path_terms = keyword_set(path.replace("/", " ").replace("-", " ").replace("_", " "))
@@ -708,7 +732,14 @@ def search_relevance_score(query: str, row: sqlite3.Row) -> float:
         score += 12.0
     elif query_lower and query_lower in title_lower:
         score += 8.0
+    alias_lowers = [alias.casefold() for alias in aliases if alias.casefold() != title.casefold()]
+    if query_lower and query_lower in alias_lowers:
+        score += 10.0
+    elif query_lower and any(query_lower in alias for alias in alias_lowers):
+        score += 6.0
     score += 4.0 * len(terms.intersection(title_terms))
+    alias_terms = keyword_set(" ".join(aliases))
+    score += 3.0 * len(terms.intersection(alias_terms))
     score += 2.5 * len(terms.intersection(heading_terms))
     score += 1.5 * len(terms.intersection(path_terms))
     score += 0.5 * len(terms.intersection(excerpt_terms))

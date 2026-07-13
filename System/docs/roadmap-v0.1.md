@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `62` unit tests
+- `63` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -298,14 +298,13 @@ Completed implementation gates:
 - keep semantic retrieval disabled by default
 - pass the privacy, fallback, lexical non-regression, and source checksum gates
 
-Remaining release operations are tracked separately in
-`System/docs/release-v0.3.md`. Do not publish an intermediate alpha GitHub
-Release; the next public v0.3 artifact is the final approved stable release.
+The completed v0.3 release operations and immutable publication record are
+tracked separately in `System/docs/release-v0.3.md`.
 
 Release policy:
 
 - `System/docs/release-v0.1.md`
-- current release-candidate package version: `0.3.0`
+- current development package version: `0.4.0a1`
 - latest published stable tag and GitHub Release: `v0.3.0`
 
 ## Next Read-only Quality Phase
@@ -357,8 +356,21 @@ Completed third implementation unit:
 - canonical template exemption from authoring-completeness diagnostics
 - aggregate actual-vault audit: 8 errors, 18 warnings, and 3 information items
 
+## Alias-aware Retrieval Development
+
+Status: Implemented on the `0.4.0a1` feature branch; integration pending.
+
+Delivered:
+
+- aliases included in derived FTS candidate text without changing the SQLite
+  schema or canonical title
+- exact and partial alias ranking signals below exact canonical-title ranking
+- alias-aware backlink target resolution
+- alias-aware existing-link suppression in `suggest_links`
+- English, Korean, reindex, backlink, and ranking regression coverage
+
 Recommended model:
 
-- `Sol / medium` for v0.3 integration and release stabilization
+- `Sol / medium` for alias-aware retrieval integration and regression review
 - `Sol / high` for writeback, schema, authorization, or security work
 - `Sol / ultra` only for high-impact migrations or permission-boundary changes

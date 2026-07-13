@@ -95,6 +95,10 @@ class VaultIndex:
 
     def upsert_note(self, note: NoteDocument) -> None:
         headings_text = "\n".join(heading.text for heading in note.headings)
+        aliases = frontmatter_string_values(note.frontmatter.get("aliases"))
+        searchable_titles = [note.title]
+        searchable_titles.extend(alias for alias in aliases if alias.casefold() != note.title.casefold())
+        fts_title = "\n".join(dict.fromkeys(searchable_titles))
         with self.conn:
             existing = self.conn.execute(
                 "SELECT note_id FROM notes WHERE path = ? AND note_id != ?",
@@ -153,7 +157,7 @@ class VaultIndex:
             )
             self.conn.execute(
                 "INSERT INTO fts_notes (note_id, title, body, headings, path) VALUES (?, ?, ?, ?, ?)",
-                (note.note_id, note.title, note.body, headings_text, note.path),
+                (note.note_id, fts_title, note.body, headings_text, note.path),
             )
 
     def delete_note(self, note_id: str) -> None:
@@ -198,6 +202,23 @@ def frontmatter_rows(note: NoteDocument) -> list[tuple[str, str, str]]:
         for item in flatten_value(value):
             rows.append((note.note_id, str(key), item))
     return rows
+
+
+def frontmatter_string_values(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    values: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        normalized = item.strip()
+        key = normalized.casefold()
+        if not normalized or key in seen:
+            continue
+        seen.add(key)
+        values.append(normalized)
+    return values
 
 
 def flatten_value(value: Any) -> list[str]:

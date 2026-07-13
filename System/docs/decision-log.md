@@ -818,3 +818,36 @@ Third implementation checkpoint:
 - record 8 existing type errors, 18 warnings, and 3 information diagnostics
 - preserve Markdown checksums and the existing lexical index modification time
 - pass 62 total tests
+
+### Alias-aware Retrieval Development
+
+Decision:
+
+- begin post-v0.3 development as package version `0.4.0a1`
+- append normalized aliases to the derived FTS title payload while preserving
+  `notes.title` as the canonical display title
+- avoid a SQLite schema migration because lexical indexes are disposable and
+  can be rebuilt from Markdown
+- rank exact canonical titles above exact aliases
+- include aliases in backlink target candidates
+- suppress link suggestions when the source already links to a target alias
+
+Safety and compatibility:
+
+- do not edit note frontmatter or body content
+- ignore malformed non-list aliases during indexing; the validator reports the
+  schema error separately
+- require a lexical index rebuild before existing vault aliases become
+  searchable
+- keep the public `v0.3.0` tag, wheel, source archive, and release unchanged
+
+Implementation checkpoint:
+
+- pass 63 automated tests, including English and Korean alias search, exact
+  title precedence, alias backlinks, suggestion deduplication, and idempotent
+  reindexing
+- rebuild the actual-vault lexical index with SQLite integrity `ok`
+- confirm every current alias frontmatter value is present in its derived FTS
+  title payload
+- preserve the scanner-visible and private Markdown aggregate checksums before
+  and after the rebuild

@@ -1236,6 +1236,75 @@ Semantic retrieval links to [[Beta]].
 
 
 class RetrievalTests(CognitiveOSTestCase):
+    def test_aliases_are_searchable_backlink_targets_and_existing_links(self) -> None:
+        self.write_note(
+            "concept.md",
+            """---
+id: concept_rag
+type: concept
+title: Retrieval Augmented Generation
+aliases:
+  - RAG
+  - 검색 증강 생성
+status: evergreen
+---
+# Retrieval Augmented Generation
+
+Combines retrieval with generation.
+""",
+        )
+        self.write_note(
+            "reference.md",
+            """---
+id: alias_reference
+type: source
+title: Alias Reference
+status: active
+---
+# Alias Reference
+
+This note links to [[RAG]].
+""",
+        )
+        self.assertEqual(self.index(), 2)
+        self.assertEqual(self.index(), 2)
+        service = RetrievalService(self.root, self.db_path)
+
+        english = service.search_notes("RAG", limit=5)
+        korean = service.search_notes("검색 증강 생성", limit=5)
+
+        self.assertEqual(english[0].note_id, "concept_rag")
+        self.assertEqual(korean[0].note_id, "concept_rag")
+        self.assertGreaterEqual(english[0].score, 10.0)
+        backlinks = service.get_backlinks("concept_rag")
+        self.assertEqual([item["note_id"] for item in backlinks], ["alias_reference"])
+        suggestions = service.suggest_links("alias_reference")
+        self.assertNotIn("concept_rag", [item["note_id"] for item in suggestions])
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            fts_title = conn.execute(
+                "SELECT title FROM fts_notes WHERE note_id = ?",
+                ("concept_rag",),
+            ).fetchone()[0]
+        self.assertEqual(
+            fts_title.splitlines(),
+            ["Retrieval Augmented Generation", "RAG", "검색 증강 생성"],
+        )
+        self.write_note(
+            "acronym.md",
+            """---
+id: exact_rag
+type: concept
+title: RAG
+status: seed
+---
+# RAG
+
+An exact-title note.
+""",
+        )
+        self.assertEqual(self.index(), 3)
+        self.assertEqual(service.search_notes("RAG", limit=5)[0].note_id, "exact_rag")
+
     def test_search_read_backlinks_and_context_pack(self) -> None:
         self.write_note(
             "alpha.md",

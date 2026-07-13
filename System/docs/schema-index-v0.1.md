@@ -61,7 +61,12 @@ line INTEGER NOT NULL
 
 ### `fts_notes`
 
-SQLite FTS5 table for title, body, headings, and path search.
+SQLite FTS5 table for title, aliases, body, headings, and path search. Aliases
+are appended to the derived FTS title payload; the canonical title stored in
+`notes.title` remains unchanged.
+
+The derived alias payload requires no Markdown or SQLite schema migration. A
+full lexical index rebuild refreshes existing rows after an alias changes.
 
 ### `index_runs`
 
@@ -70,3 +75,12 @@ Records index rebuild metadata: run id, started time, completed time, note count
 ## Reindex Rule
 
 Reindexing the same file must update the existing row and replace derived links/headings/FTS rows. It must not create duplicate notes.
+
+## Alias Resolution
+
+- exact canonical title matches rank above exact alias matches
+- exact and partial aliases contribute explicit lexical ranking signals
+- aliases are accepted as backlink targets alongside note id, path, title, and
+  filename stem
+- link suggestion deduplication treats canonical title and aliases as the same
+  target note

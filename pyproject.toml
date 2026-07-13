@@ -24,6 +24,7 @@ cognitiveos-search = "cognitiveos.cli:main_search"
 cognitiveos-mcp = "cognitiveos.mcp_server:main"
 cognitiveos-embed = "cognitiveos.cli:main_embed"
 cognitiveos-evaluate-embeddings = "cognitiveos.evaluation:main_evaluate"
+cognitiveos-validate = "cognitiveos.cli:main_validate"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

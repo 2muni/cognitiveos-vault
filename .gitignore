@@ -32,6 +32,8 @@ System/__SPECS__.md
 System/templates/*
 !System/templates/v0.1/
 !System/templates/v0.1/**
+!System/templates/v0.2/
+!System/templates/v0.2/**
 
 # OS and sync noise
 .DS_Store

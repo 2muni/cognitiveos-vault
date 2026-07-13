@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `58` unit tests
+- `61` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -312,8 +312,8 @@ Release policy:
 
 Phase 8: note contract validation and lower-friction authoring.
 
-Status: Design complete; core validator diagnostics implemented; CLI and v0.2
-templates not started.
+Status: Design, core validator diagnostics, CLI, and v0.2 templates complete;
+type-specific authoring diagnostics remain deferred.
 
 Planned scope:
 
@@ -336,6 +336,17 @@ Completed first implementation unit:
 - relationship and visibility information diagnostics
 - user/all scope behavior and vault-root safety
 - no index creation or Markdown mutation
+
+Completed second implementation unit:
+
+- `cognitiveos-validate` package entry point
+- deterministic `text|json` output
+- `--scope user|all` and `--strict`
+- stable exit codes for clean, validation, and invocation outcomes
+- nine validator-compatible templates under `System/templates/v0.2/`
+- capture and durable profiles without empty optional metadata arrays
+- explicit documentation that the public v0.3.0 wheel predates the validator
+  entry point
 
 Recommended model:
 

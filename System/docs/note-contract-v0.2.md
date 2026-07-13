@@ -3,8 +3,8 @@
 ## Status
 
 - Design status: draft
-- Implementation status: core diagnostics and report model implemented; CLI and
-  templates not started
+- Implementation status: core diagnostics, CLI, and v0.2 templates implemented;
+  type-specific heading diagnostics deferred
 - Scope: read-only validation and user-guided templates
 - Migration status: no migration is authorized by this design
 
@@ -258,10 +258,11 @@ freshness remains a separate implementation decision.
 
 ## Read-only Validator
 
-The first implementation unit is available in `src/cognitiveos/validation.py`.
-It provides deterministic report and diagnostic data structures plus pure
-read-only validation functions. The command-line interface and remaining
-type-specific heading checks are not implemented yet.
+The validation core is available in `src/cognitiveos/validation.py`. It provides
+deterministic report and diagnostic data structures plus pure read-only
+validation functions. `cognitiveos-validate` exposes text and JSON output,
+scope selection, strict warning handling, and stable exit codes. Type-specific
+heading and source-locator diagnostics remain deferred.
 
 ### Command
 
@@ -362,10 +363,11 @@ outside the common schema.
 
 ## Compatibility and Rollout
 
-1. Add validator data structures and pure validation functions with fixture
-   tests; do not add a CLI yet.
-2. Add deterministic text and JSON output plus `cognitiveos-validate`.
-3. Add `System/templates/v0.2/` without modifying `v0.1` templates.
+1. [Complete] Add validator data structures and pure validation functions with
+   fixture tests.
+2. [Complete] Add deterministic text and JSON output plus
+   `cognitiveos-validate`.
+3. [Complete] Add `System/templates/v0.2/` without modifying `v0.1` templates.
 4. Run the validator against the actual vault and record aggregate diagnostics
    only; do not expose private note content.
 5. Tune warning severity based on observed false positives.

@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import cognitiveos.cli as cognitiveos_cli
 import cognitiveos.runtime as cognitiveos_runtime
 from cognitiveos import __version__
-from cognitiveos.cli import main_embed, main_index, main_search
+from cognitiveos.cli import main_embed, main_index, main_search, main_validate
 from cognitiveos.embedding_chunks import (
     CHUNKER_VERSION,
     chunk_note,
@@ -222,7 +222,7 @@ type: inbox
 status: inbox
 created_at: 2026-07-13
 ---
-# Capture title
+# Observed indexing question
 
 ## Capture
 
@@ -362,6 +362,19 @@ updated_at: YYYY-MM-DD
 # Concept Title
 """,
         )
+        self.write_note(
+            "01_Concepts/copied-v02.md",
+            """---
+id: concept_20260713_real
+type: concept
+status: seed
+created_at: 2026-07-13
+updated_at: 2026-07-13
+visibility: private
+---
+# Concept title
+""",
+        )
 
         report = validate_vault(self.root)
         codes_by_path = {}
@@ -369,6 +382,7 @@ updated_at: YYYY-MM-DD
             codes_by_path.setdefault(item.path, set()).add(item.code)
 
         self.assertIn("template_placeholder_present", codes_by_path["01_Concepts/placeholder.md"])
+        self.assertIn("template_placeholder_present", codes_by_path["01_Concepts/copied-v02.md"])
         self.assertIn("frontmatter_parse_failed", codes_by_path["broken.md"])
         self.assertNotIn(
             "template_placeholder_present",
@@ -1697,6 +1711,140 @@ class CLITests(CognitiveOSTestCase):
         ), redirect_stdout(search_text):
             main_search()
         self.assertIn("한글 노트", search_text.getvalue())
+
+    def test_validate_cli_supports_text_json_scope_and_strict_exit_codes(self) -> None:
+        self.write_note(
+            "00_Inbox/capture.md",
+            """---
+type: inbox
+status: inbox
+created_at: 2026-07-13
+---
+# Capture
+""",
+        )
+        text_output = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            ["cognitiveos-validate", str(self.root), "--format", "text"],
+        ), redirect_stdout(text_output):
+            exit_code = main_validate()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("note-contract-v0.2", text_output.getvalue())
+        self.assertIn("files=1 errors=0 warnings=0 info=0", text_output.getvalue())
+        self.assertFalse((self.root / ".pkm-index").exists())
+
+        self.write_note(
+            "01_Concepts/invalid.md",
+            """---
+id: duplicated
+type: invalid
+status: finished
+---
+# Invalid
+""",
+        )
+        json_output = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            ["cognitiveos-validate", str(self.root), "--format", "json"],
+        ), redirect_stdout(json_output):
+            exit_code = main_validate()
+        payload = json.loads(json_output.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["validation_version"], "note-contract-v0.2")
+        self.assertGreaterEqual(payload["summary"]["errors"], 2)
+        self.assertTrue(all(not item["path"].startswith("/") for item in payload["diagnostics"]))
+
+        warning_root = self.root / "warning-only"
+        warning_root.mkdir()
+        (warning_root / "note.md").write_text(
+            "---\ntype: inbox\nstatus: active\n---\n# Warning\n",
+            encoding="utf-8",
+        )
+        with patch.object(
+            sys,
+            "argv",
+            ["cognitiveos-validate", str(warning_root), "--strict"],
+        ), redirect_stdout(io.StringIO()):
+            self.assertEqual(main_validate(), 1)
+        with patch.object(
+            sys,
+            "argv",
+            ["cognitiveos-validate", str(warning_root), "--scope", "private"],
+        ), redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as context:
+                main_validate()
+        self.assertEqual(context.exception.code, 2)
+
+    def test_validate_cli_user_scope_excludes_system_authoring_warnings(self) -> None:
+        self.write_note(
+            "System/docs/concept.md",
+            """---
+type: concept
+status: seed
+---
+# System-scoped concept
+""",
+        )
+
+        user_output = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            ["cognitiveos-validate", str(self.root), "--scope", "user", "--format", "json"],
+        ), redirect_stdout(user_output):
+            self.assertEqual(main_validate(), 0)
+        self.assertEqual(json.loads(user_output.getvalue())["summary"]["warnings"], 0)
+
+        all_output = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            ["cognitiveos-validate", str(self.root), "--scope", "all", "--format", "json"],
+        ), redirect_stdout(all_output):
+            self.assertEqual(main_validate(), 0)
+        all_payload = json.loads(all_output.getvalue())
+        self.assertEqual(all_payload["summary"]["warnings"], 1)
+        self.assertEqual(all_payload["diagnostics"][0]["code"], "durable_id_missing")
+
+    def test_v02_templates_are_validator_compatible(self) -> None:
+        source_root = Path(__file__).resolve().parents[1] / "System" / "templates" / "v0.2"
+        template_names = sorted(path.name for path in source_root.glob("*.md"))
+        self.assertEqual(
+            template_names,
+            [
+                "concept.md",
+                "entity.md",
+                "inbox.md",
+                "journal.md",
+                "map.md",
+                "output.md",
+                "project.md",
+                "source.md",
+                "system.md",
+            ],
+        )
+        for name in template_names:
+            self.write_note(
+                f"System/templates/v0.2/{name}",
+                (source_root / name).read_text(encoding="utf-8"),
+            )
+
+        report = validate_vault(self.root, scope="all")
+
+        self.assertEqual(report.error_count, 0)
+        self.assertEqual(report.warning_count, 0)
+        self.assertEqual(report.info_count, 0)
+        pyproject = tomllib.loads(
+            (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            pyproject["project"]["scripts"]["cognitiveos-validate"],
+            "cognitiveos.cli:main_validate",
+        )
 
 
 if __name__ == "__main__":

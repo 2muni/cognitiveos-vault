@@ -791,3 +791,16 @@ Implementation checkpoint:
 - identify eight existing user-scope noncanonical note types that the current
   parser silently treats as inbox; do not modify those notes automatically
 - pass 58 total tests after the first validator unit
+
+Second implementation checkpoint:
+
+- add `cognitiveos-validate` with deterministic text and JSON output
+- implement `--scope user|all`, `--strict`, and stable exit codes
+- add nine templates under `System/templates/v0.2/` while preserving v0.1
+- omit empty optional metadata arrays from v0.2 templates
+- keep the first H1 as the default human-readable title
+- confirm all v0.2 templates pass validation, including placeholder exemptions
+- retain the immutable public v0.3.0 wheel as a five-entry-point artifact and
+  describe the validator as development-tree functionality until a future
+  package release
+- pass 61 total tests after the CLI and template unit

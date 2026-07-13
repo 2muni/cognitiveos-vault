@@ -20,18 +20,19 @@ LIST_FIELDS = {"aliases", "tags", "domains", "links", "sources"}
 STRING_FIELDS = {"id", "type", "title", "status", "visibility"}
 DATE_FIELDS = {"created_at", "updated_at", "created", "updated"}
 PLACEHOLDER_VALUES = {
-    "Untitled Capture",
-    "Concept Title",
-    "Entity Name",
-    "Map Title",
-    "Output Title",
-    "Project Title",
-    "Source Title",
-    "System Document Title",
-    "YYYY-MM-DD",
-    "YYYYMMDD",
+    "untitled capture",
+    "capture title",
+    "concept title",
+    "entity name",
+    "map title",
+    "output title",
+    "project title",
+    "source title",
+    "system document title",
+    "yyyy-mm-dd",
+    "yyyymmdd",
 }
-PLACEHOLDER_RE = re.compile(r"(?:YYYY(?:-?MM(?:-?DD)?)?|YYYYMMDD_slug)$")
+PLACEHOLDER_RE = re.compile(r"(?:YYYY(?:-?MM(?:-?DD)?)?|YYYYMMDD_slug)$", re.IGNORECASE)
 KEBAB_CASE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -210,7 +211,7 @@ def validate_note_file(
         effective_id = None
 
     if not is_template_path(rel_path):
-        diagnostics.extend(_placeholder_diagnostics(rel_path, frontmatter, field_lines))
+        diagnostics.extend(_placeholder_diagnostics(rel_path, frontmatter, field_lines, headings))
     if authoring_scope:
         diagnostics.extend(
             _authoring_diagnostics(
@@ -420,6 +421,7 @@ def _placeholder_diagnostics(
     path: str,
     frontmatter: dict[str, Any],
     field_lines: dict[str, int],
+    headings: tuple[str, ...],
 ) -> list[ValidationDiagnostic]:
     diagnostics: list[ValidationDiagnostic] = []
     for field_name in sorted(frontmatter):
@@ -436,6 +438,16 @@ def _placeholder_diagnostics(
                     field=field_name,
                 )
             )
+    if headings and is_placeholder_value(headings[0]):
+        diagnostics.append(
+            diagnostic(
+                "template_placeholder_present",
+                "error",
+                path,
+                "first H1 template placeholder must be replaced before indexing",
+                field="title",
+            )
+        )
     return diagnostics
 
 
@@ -563,7 +575,7 @@ def is_placeholder_value(value: Any) -> bool:
     if not isinstance(value, str):
         return False
     stripped = value.strip()
-    return stripped in PLACEHOLDER_VALUES or bool(PLACEHOLDER_RE.search(stripped))
+    return stripped.casefold() in PLACEHOLDER_VALUES or bool(PLACEHOLDER_RE.search(stripped))
 
 
 def is_user_authored_path(path: str) -> bool:

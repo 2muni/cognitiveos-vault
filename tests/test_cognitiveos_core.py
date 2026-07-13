@@ -14,6 +14,7 @@ from contextlib import closing
 from contextlib import redirect_stderr
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -54,7 +55,7 @@ from cognitiveos.evaluation import (
     mean_reciprocal_rank,
     recall_at_k,
 )
-from cognitiveos.mcp_server import handle_message
+from cognitiveos.mcp_server import handle_message, set_fastmcp_server_version
 from cognitiveos.models import SearchResult
 from cognitiveos.parser import parse_markdown_file
 from cognitiveos.retrieval import RetrievalService, estimate_tokens, select_diverse_results
@@ -2067,6 +2068,14 @@ class SchemaFixtureTests(CognitiveOSTestCase):
 
 
 class BasicMCPProtocolTests(CognitiveOSTestCase):
+    def test_fastmcp_stdio_server_uses_cognitiveos_package_version(self) -> None:
+        server = SimpleNamespace(version=None)
+        fastmcp = SimpleNamespace(_mcp_server=server)
+
+        set_fastmcp_server_version(fastmcp)
+
+        self.assertEqual(server.version, __version__)
+
     def test_basic_mcp_initialize_list_and_call(self) -> None:
         self.write_note(
             "concept.md",

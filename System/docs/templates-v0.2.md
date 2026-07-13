@@ -38,9 +38,11 @@ real decision. Empty optional arrays are not part of the v0.2 templates.
 
 ## Relationship Rule
 
-Write relationships and sources as body wikilinks or Markdown links under the
-appropriate section. Frontmatter `links` and `sources` are not currently
-indexed as graph edges.
+Prefer body wikilinks or Markdown links under the appropriate section when the
+relationship should be visible in the note. Frontmatter `links` and `sources`
+may also record structured relationships; they are indexed as typed derived
+graph edges. Do not duplicate the same relationship in both places without a
+specific human-readable reason.
 
 ## Placeholder Rules
 

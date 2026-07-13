@@ -105,7 +105,22 @@ Input:
 }
 ```
 
-Output: notes related by explicit links or matching metadata.
+Output: notes related by resolved explicit graph edges followed by lexical
+matches. Graph-ranked items include a `retrieval` object:
+
+```json
+{
+  "version": "graph-related-v0.1",
+  "graph_used": true,
+  "directions": ["outgoing"],
+  "edge_types": ["frontmatter_link"],
+  "graph_score": 3.1,
+  "lexical_rank": null
+}
+```
+
+Outgoing edges rank before incoming edges. Ambiguous identities are not
+resolved automatically.
 
 ### `suggest_links`
 
@@ -184,13 +199,18 @@ Returned fields:
 - `sources`: ranked source objects with summary, key points, evidence, score, and stats
 - `key_points`: deduplicated key points across selected sources
 - `evidence_paths`: vault-relative source paths used in the pack
-- `stats`: source count, evidence path count, key point count, and source word count
+- `stats`: source count, evidence path count, key point count, source word
+  count, selection version, graph edge count, and graph-connected source count
 - `budget`: requested, estimated, and remaining tokens plus truncation state and estimator identity
+
+Each source includes `selection.version = type-diverse-graph-v0.1`,
+`graph_connected_to`, and `graph_edge_types`.
 
 The `local-heuristic-v1` estimator counts ASCII text at four characters per
 token, rounded up, and non-ASCII text at one token per character. Context source
-selection prefers the highest-ranked note of each available note type, then
-fills remaining positions by search rank. Source identity and excerpts are
+selection starts from the highest-ranked result, preserves note-type diversity,
+and prefers a directly connected candidate within the eligible type before
+falling back to search rank. Source identity and excerpts are
 allocated before key points and evidence; optional evidence is added round-robin
 without exceeding the requested context budget.
 

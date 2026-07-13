@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `64` unit tests
+- `68` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -380,6 +380,19 @@ Completed follow-up indexing unit:
 - validator information warning removed now that the fields are operational
 - aggregate actual-vault diagnostics now remain at 8 errors and 18 warnings
   with relationship information diagnostics reduced from 3 to 0
+
+Completed graph retrieval unit:
+
+- one deterministic identity resolver for backlinks, related notes, and
+  context-pack graph signals
+- exact note id and path precedence over colliding aliases or titles
+- ambiguous aliases and titles rejected instead of expanding to multiple notes
+- outgoing graph neighbors ranked before incoming neighbors in
+  `get_related_notes`, with lexical fallback preserved
+- note-type-diverse context selection prefers graph-connected candidates within
+  the eligible type
+- source-level and aggregate graph selection diagnostics
+- generic lexical and hybrid `search_notes` ranking left unchanged
 
 Recommended model:
 

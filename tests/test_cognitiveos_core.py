@@ -1254,6 +1254,226 @@ Semantic retrieval links to [[Beta]].
 
 
 class RetrievalTests(CognitiveOSTestCase):
+    def test_graph_resolution_prefers_exact_id_over_alias_collision(self) -> None:
+        self.write_note(
+            "exact.md",
+            """---
+id: shared_identity
+type: concept
+title: Exact Identity Target
+status: evergreen
+---
+# Exact Identity Target
+""",
+        )
+        self.write_note(
+            "alias.md",
+            """---
+id: alias_collision
+type: concept
+title: Alias Collision
+aliases:
+  - shared_identity
+status: evergreen
+---
+# Alias Collision
+""",
+        )
+        self.write_note(
+            "source.md",
+            """---
+id: collision_source
+type: project
+title: Collision Source
+status: active
+links:
+  - shared_identity
+---
+# Collision Source
+""",
+        )
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        adjacency = service._graph_adjacency()
+
+        self.assertIn("shared_identity", adjacency["collision_source"])
+        self.assertNotIn("alias_collision", adjacency["collision_source"])
+        self.assertEqual(
+            [item["note_id"] for item in service.get_backlinks("shared_identity")],
+            ["collision_source"],
+        )
+
+    def test_graph_resolution_rejects_ambiguous_alias_targets(self) -> None:
+        for note_id, title in (("first_target", "First Target"), ("second_target", "Second Target")):
+            self.write_note(
+                f"{note_id}.md",
+                f"""---
+id: {note_id}
+type: concept
+title: {title}
+aliases:
+  - Shared Alias
+status: evergreen
+---
+# {title}
+""",
+            )
+        self.write_note(
+            "source.md",
+            """---
+id: ambiguous_source
+type: project
+title: Ambiguous Source
+status: active
+links:
+  - Shared Alias
+---
+# Ambiguous Source
+""",
+        )
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        adjacency = service._graph_adjacency()
+
+        self.assertNotIn("ambiguous_source", adjacency)
+        self.assertEqual(service.get_backlinks("first_target"), [])
+        self.assertEqual(service.get_backlinks("second_target"), [])
+
+    def test_related_notes_prioritize_outgoing_then_incoming_graph_edges(self) -> None:
+        self.write_note(
+            "anchor.md",
+            """---
+id: graph_anchor
+type: project
+title: Graph Anchor
+status: active
+links:
+  - outgoing_target
+---
+# Graph Anchor
+
+Anchor terminology for lexical matching.
+""",
+        )
+        self.write_note(
+            "outgoing.md",
+            """---
+id: outgoing_target
+type: source
+title: Unrelated Outgoing Source
+status: evergreen
+---
+# Unrelated Outgoing Source
+
+Explicitly connected evidence.
+""",
+        )
+        self.write_note(
+            "incoming.md",
+            """---
+id: incoming_source
+type: concept
+title: Incoming Concept
+status: active
+links:
+  - graph_anchor
+---
+# Incoming Concept
+
+Points back to the anchor.
+""",
+        )
+        self.write_note(
+            "lexical.md",
+            """---
+id: lexical_only
+type: concept
+title: Graph Anchor Terminology
+status: active
+---
+# Graph Anchor Terminology
+
+Graph Anchor terminology appears repeatedly without an explicit edge.
+""",
+        )
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        related = service.get_related_notes("graph_anchor", limit=4)
+
+        self.assertEqual([item["note_id"] for item in related[:2]], ["outgoing_target", "incoming_source"])
+        self.assertEqual(related[0]["retrieval"]["directions"], ["outgoing"])
+        self.assertEqual(related[0]["retrieval"]["edge_types"], ["frontmatter_link"])
+        self.assertEqual(related[1]["retrieval"]["directions"], ["incoming"])
+        self.assertGreater(
+            related[0]["retrieval"]["graph_score"],
+            related[1]["retrieval"]["graph_score"],
+        )
+        self.assertIn("lexical_only", [item["note_id"] for item in related])
+
+    def test_context_pack_prefers_graph_connected_source_within_type(self) -> None:
+        self.write_note(
+            "anchor.md",
+            """---
+id: context_anchor
+type: project
+title: Graph Context
+status: active
+sources:
+  - connected_source
+---
+# Graph Context
+
+Graph context evidence selection.
+""",
+        )
+        self.write_note(
+            "unconnected.md",
+            """---
+id: unconnected_source
+type: source
+title: Graph Context Lexical Source
+status: evergreen
+---
+# Graph Context Lexical Source
+
+Graph context graph context graph context lexical evidence.
+""",
+        )
+        self.write_note(
+            "connected.md",
+            """---
+id: connected_source
+type: source
+title: Connected Evidence
+status: evergreen
+---
+# Connected Evidence
+
+Graph context evidence connected explicitly.
+""",
+        )
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        pack = service.build_context_pack("Graph Context", limit=2, token_budget=4000)
+
+        self.assertEqual([item.note_id for item in pack.results], ["context_anchor", "connected_source"])
+        self.assertEqual(pack.stats["selection_version"], "type-diverse-graph-v0.1")
+        self.assertEqual(pack.stats["graph_edge_count"], 1)
+        self.assertEqual(pack.stats["graph_connected_source_count"], 2)
+        source_by_id = {source["note_id"]: source for source in pack.sources}
+        self.assertEqual(
+            source_by_id["context_anchor"]["selection"]["graph_connected_to"],
+            ["connected_source"],
+        )
+        self.assertEqual(
+            source_by_id["connected_source"]["selection"]["graph_edge_types"],
+            ["frontmatter_source"],
+        )
+
     def test_frontmatter_relationships_are_indexed_as_graph_edges(self) -> None:
         self.write_note(
             "spec.md",

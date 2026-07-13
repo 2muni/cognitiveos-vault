@@ -887,3 +887,46 @@ Implementation checkpoint:
   existing 8 errors and 18 warnings
 - preserve scanner-visible and private Markdown aggregate checksums before and
   after reindexing
+
+### Graph-aware Related Notes and Context Selection
+
+Decision:
+
+- resolve derived graph targets against note id and path first, then filename
+  stem, canonical title, and aliases using casefolded identity maps
+- reject ambiguous identities rather than linking one edge to multiple notes
+- rank direct outgoing neighbors ahead of incoming neighbors in
+  `get_related_notes`, then fill with lexical results
+- retain note-type diversity in context packs while preferring a candidate
+  connected to an already selected source within the eligible type
+- expose deterministic `graph-related-v0.1` and
+  `type-diverse-graph-v0.1` diagnostics
+- do not add graph boosts to generic `search_notes`
+
+Rationale:
+
+- explicit author relationships should dominate inferred textual similarity in
+  a related-notes view
+- context packs benefit from coherent evidence clusters without sacrificing
+  source-type diversity or lexical/semantic candidate generation
+- conservative ambiguity handling prevents incorrect knowledge edges
+
+Safety and compatibility:
+
+- use the existing disposable SQLite links projection; no graph database or
+  Markdown migration is introduced
+- preserve existing result fields and add retrieval/selection diagnostics only
+- keep context token accounting based on rendered evidence text, not diagnostic
+  metadata
+
+Implementation checkpoint:
+
+- pass 68 automated tests, including outgoing/incoming ordering, lexical
+  fallback, graph-aware type diversity, strong-identity precedence, and
+  ambiguous-alias rejection
+- rebuild the actual-vault lexical index with SQLite integrity `ok`
+- resolve four current graph pairs across five graph-connected notes without
+  exposing note paths or contents in the audit
+- complete actual-vault related-note and context-pack graph smoke checks
+- preserve scanner-visible and private Markdown aggregate checksums before and
+  after reindexing

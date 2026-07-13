@@ -99,3 +99,18 @@ Reindexing the same file must update the existing row and replace derived links/
   target note
 - backlinks return each source note once even if it reaches the target through
   multiple canonical, alias, body, or frontmatter edges
+
+## Graph Identity and Ranking
+
+The SQLite links table is a derived graph projection, not a separate graph
+database. Edge targets first resolve case-insensitively against the strong
+identities note id and vault-relative path. If neither matches, filename stem,
+canonical title, and aliases are considered. A named identity that resolves to
+more than one note is ambiguous and is not converted into a graph connection.
+
+`get_related_notes` ranks resolved outgoing neighbors before incoming
+neighbors, then fills remaining result slots with lexical matches. A
+bidirectional neighbor receives both signals. Context-pack selection keeps the
+existing note-type-diversity rule, but within an eligible type prefers a
+candidate directly connected to a source already selected. Generic
+`search_notes` ranking is unchanged.

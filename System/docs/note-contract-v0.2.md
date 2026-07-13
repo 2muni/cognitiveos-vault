@@ -217,6 +217,12 @@ their derived edge stores `line=NULL`.
 indexed as outgoing source evidence but do not resolve to a note unless they
 match a note identity explicitly. No relationship is written back to Markdown.
 
+Graph identity resolution gives note id and path precedence over filename stem,
+canonical title, and aliases. Ambiguous title or alias targets are left
+unresolved rather than being attached to every matching note. Resolved edges
+guide related-note ranking and context-pack source selection; generic search
+ranking remains lexical/semantic and does not receive a graph boost.
+
 ### Source metadata
 
 The source template retains its human-readable citation section in the first

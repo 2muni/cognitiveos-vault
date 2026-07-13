@@ -41,6 +41,7 @@ def main() -> None:
 
     service = build_runtime_service(args.vault_root, args.db)
     mcp = FastMCP("cognitiveos")
+    set_fastmcp_server_version(mcp)
 
     @mcp.tool()
     def search_notes(
@@ -127,6 +128,18 @@ def main() -> None:
         )
 
     mcp.run()
+
+
+def set_fastmcp_server_version(mcp: Any) -> None:
+    """Keep FastMCP's stdio handshake aligned with the package version.
+
+    FastMCP 1.x does not accept a version constructor argument, but its
+    underlying low-level server owns the value sent in ``serverInfo``.
+    """
+    server = getattr(mcp, "_mcp_server", None)
+    if server is None:
+        raise RuntimeError("FastMCP server identity is unavailable")
+    server.version = __version__
 
 
 def run_basic_stdio_server(service: RetrievalService) -> None:

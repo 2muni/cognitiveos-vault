@@ -818,3 +818,176 @@ Third implementation checkpoint:
 - record 8 existing type errors, 18 warnings, and 3 information diagnostics
 - preserve Markdown checksums and the existing lexical index modification time
 - pass 62 total tests
+
+### Alias-aware Retrieval Development
+
+Decision:
+
+- begin post-v0.3 development as package version `0.4.0a1`
+- append normalized aliases to the derived FTS title payload while preserving
+  `notes.title` as the canonical display title
+- avoid a SQLite schema migration because lexical indexes are disposable and
+  can be rebuilt from Markdown
+- rank exact canonical titles above exact aliases
+- include aliases in backlink target candidates
+- suppress link suggestions when the source already links to a target alias
+
+Safety and compatibility:
+
+- do not edit note frontmatter or body content
+- ignore malformed non-list aliases during indexing; the validator reports the
+  schema error separately
+- require a lexical index rebuild before existing vault aliases become
+  searchable
+- keep the public `v0.3.0` tag, wheel, source archive, and release unchanged
+
+Implementation checkpoint:
+
+- pass 63 automated tests, including English and Korean alias search, exact
+  title precedence, alias backlinks, suggestion deduplication, and idempotent
+  reindexing
+- rebuild the actual-vault lexical index with SQLite integrity `ok`
+- confirm every current alias frontmatter value is present in its derived FTS
+  title payload
+- preserve the scanner-visible and private Markdown aggregate checksums before
+  and after the rebuild
+
+### Frontmatter Relationship Edge Indexing
+
+Decision:
+
+- parse valid string-list values from `links` and `sources` into the existing
+  derived `links` table without a schema migration
+- use `frontmatter_link` and `frontmatter_source` edge types and `line=NULL`
+- normalize full wikilinks and Markdown links to their targets while preserving
+  raw ids, titles, aliases, paths, and URLs
+- collapse case-insensitive duplicates within each frontmatter field
+- keep body links and frontmatter relationships available together through
+  `read_note`, backlinks, and link-suggestion deduplication
+- return each backlink source note once when multiple edges reach the same
+  target
+
+Safety and compatibility:
+
+- do not rewrite or migrate source Markdown
+- ignore malformed non-list or non-string values during parsing; retain the
+  validator's schema error
+- remove `frontmatter_relationship_not_indexed` because valid relationships are
+  now operational graph edges
+- require a lexical index rebuild to populate existing frontmatter edges
+
+Implementation checkpoint:
+
+- pass 64 automated tests, including wrapper normalization, duplicate collapse,
+  typed edge persistence, backlink deduplication, and suggestion suppression
+- rebuild the actual-vault index with SQLite integrity `ok`
+- confirm actual frontmatter edges use only `frontmatter_link` or
+  `frontmatter_source` and always store `line=NULL`
+- reduce actual-vault information diagnostics from 3 to 0 while preserving the
+  existing 8 errors and 18 warnings
+- preserve scanner-visible and private Markdown aggregate checksums before and
+  after reindexing
+
+### Graph-aware Related Notes and Context Selection
+
+Decision:
+
+- resolve derived graph targets against note id and path first, then filename
+  stem, canonical title, and aliases using casefolded identity maps
+- reject ambiguous identities rather than linking one edge to multiple notes
+- rank direct outgoing neighbors ahead of incoming neighbors in
+  `get_related_notes`, then fill with lexical results
+- retain note-type diversity in context packs while preferring a candidate
+  connected to an already selected source within the eligible type
+- expose deterministic `graph-related-v0.1` and
+  `type-diverse-graph-v0.1` diagnostics
+- do not add graph boosts to generic `search_notes`
+
+Rationale:
+
+- explicit author relationships should dominate inferred textual similarity in
+  a related-notes view
+- context packs benefit from coherent evidence clusters without sacrificing
+  source-type diversity or lexical/semantic candidate generation
+- conservative ambiguity handling prevents incorrect knowledge edges
+
+Safety and compatibility:
+
+- use the existing disposable SQLite links projection; no graph database or
+  Markdown migration is introduced
+- preserve existing result fields and add retrieval/selection diagnostics only
+- keep context token accounting based on rendered evidence text, not diagnostic
+  metadata
+
+Implementation checkpoint:
+
+- pass 68 automated tests, including outgoing/incoming ordering, lexical
+  fallback, graph-aware type diversity, strong-identity precedence, and
+  ambiguous-alias rejection
+- rebuild the actual-vault lexical index with SQLite integrity `ok`
+- resolve four current graph pairs across five graph-connected notes without
+  exposing note paths or contents in the audit
+- complete actual-vault related-note and context-pack graph smoke checks
+- preserve scanner-visible and private Markdown aggregate checksums before and
+  after reindexing
+
+### Graph Adjacency Cache
+
+Decision:
+
+- cache one resolved graph adjacency object per retrieval service instance
+- use main SQLite and optional WAL mtime/size signatures for the fast hit path
+- confirm changed signatures with latest index run id, status, indexed count,
+  live note count, and link count
+- rebuild once when the generation changes during construction and avoid
+  caching when a second concurrent change is detected
+- never share mutable adjacency objects across service instances
+
+Rationale:
+
+- backlink, related-note, and context-pack calls otherwise reread all notes,
+  aliases, and links independently
+- file signatures make the common hit path cheap, while index metadata and
+  counts make invalidation auditable
+- WAL awareness prevents stale graph results when SQLite writes have not yet
+  checkpointed into the main database file
+
+Implementation checkpoint:
+
+- pass cache-hit, normal reindex, same-size direct mutation, WAL mutation, and
+  service-isolation tests
+- reduce actual-vault graph cache hits from about 1.78 ms to roughly
+  0.03–0.05 ms per call on this device while returning the same adjacency
+  object
+
+### Layer Specification Contract and Template Runtime Identity
+
+Decision:
+
+- treat files named `__SPECS__.md` as durable `system` notes with explicit,
+  layer-specific stable ids
+- preserve their numbered, layer-specific body structure instead of requiring
+  the generic system heading profile
+- continue enforcing all frontmatter, status, placeholder, and duplicate-id
+  diagnostics on layer specifications
+- assign files under `System/templates/` deterministic path-derived runtime ids
+  rather than indexing their authoring placeholder ids
+
+Rationale:
+
+- layer specifications are searchable operational knowledge, not validator or
+  index exclusions
+- `system_readme` duplicated the existing `system` semantic type and caused the
+  parser to fall back to `inbox`
+- v0.1 and v0.2 templates intentionally share placeholder ids, so treating
+  those placeholders as runtime identity caused one version to overwrite the
+  other in the derived index
+
+Implementation checkpoint:
+
+- reduce actual-vault validation from 8 errors and 18 warnings to 0 errors and
+  10 warnings without changing specification prose
+- index all 55 scanner-visible Markdown files as 55 notes, 55 unique ids, 55
+  unique paths, and 55 FTS rows with SQLite integrity `ok`
+- confirm a layer specification is searchable as a `system` note
+- pass 74 automated tests with `ResourceWarning` promoted to an error

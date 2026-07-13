@@ -151,7 +151,24 @@ domains:
 confidence: 0.8
 ```
 
+### Layer Specification Profile
+
+Files named `__SPECS__.md` are durable operational guidance for a vault layer.
+They use `type: system`, `status: active`, and an explicit stable `id`. Existing
+`layer`, `purpose`, and `scope` fields may describe their operational reach.
+
+Layer specifications retain their numbered, layer-specific section structure,
+so the validator does not require the generic system headings `Purpose`,
+`Specification`, `Rationale`, and `Change Log`. All other frontmatter, identity,
+placeholder, status, and duplicate checks continue to apply. Layer
+specifications remain scanner-visible and searchable; they are not validator or
+index exclusions.
+
 Empty optional arrays should not be required in v0.2 templates.
+Template placeholder IDs are authoring instructions rather than durable note
+identities. At index time, files under `System/templates/` therefore receive a
+deterministic path-derived runtime ID. This keeps versioned templates with the
+same placeholder ID independently searchable without changing template source.
 
 ### Type-specific Body Contracts
 
@@ -189,8 +206,8 @@ separate migration plan is approved.
 
 ### Canonical relationship representation
 
-Until frontmatter relationships are indexed as graph edges, body wikilinks and
-Markdown links are the canonical operational relationship representation:
+Body wikilinks and Markdown links remain the preferred human-readable
+relationship representation:
 
 ```markdown
 ## Related
@@ -203,9 +220,25 @@ Markdown links are the canonical operational relationship representation:
 - [[CognitiveOS Architecture v0.1]]
 ```
 
-Frontmatter `links` and `sources` remain accepted for v0.1 compatibility, but
-the validator emits `frontmatter_relationship_not_indexed` at information
-severity when they are non-empty. It does not rewrite them.
+Frontmatter `links` and `sources` are also indexed as typed graph edges in
+`0.4.0a1` development. Each field must be a list of strings. Values may be raw
+note ids, titles, aliases, vault-relative paths, wikilinks, Markdown links, or
+external URLs. Wikilink display text and Markdown link labels are removed from
+the derived target. Duplicate values within one field are collapsed
+case-insensitively. Because frontmatter values do not have a body line number,
+their derived edge stores `line=NULL`.
+
+`links` produces `frontmatter_link` edges and `sources` produces
+`frontmatter_source` edges. Body links retain their existing `wikilink` and
+`markdown` types. Backlinks resolve all internal edge types; external URLs stay
+indexed as outgoing source evidence but do not resolve to a note unless they
+match a note identity explicitly. No relationship is written back to Markdown.
+
+Graph identity resolution gives note id and path precedence over filename stem,
+canonical title, and aliases. Ambiguous title or alias targets are left
+unresolved rather than being attached to every matching note. Resolved edges
+guide related-note ranking and context-pack source selection; generic search
+ranking remains lexical/semantic and does not receive a graph boost.
 
 ### Source metadata
 
@@ -230,9 +263,11 @@ personal synthesis.
 
 ### Aliases
 
-Aliases remain optional. They are not yet part of lexical FTS or backlink
-resolution. Alias search support is a separate implementation item and should
-precede any recommendation to fill aliases broadly.
+Aliases remain optional. In `0.4.0a1` development they are included in lexical
+FTS candidate generation, receive explicit alias ranking signals, and resolve
+as backlink targets. Link suggestions also recognize an existing alias link so
+they do not propose the canonical note again. The canonical title remains the
+display title and receives a stronger exact-match score than an alias.
 
 ### Confidence
 
@@ -354,7 +389,6 @@ Warnings:
 
 Information:
 
-- `frontmatter_relationship_not_indexed`
 - `visibility_is_not_access_control`
 - `runtime_default_applied`
 
@@ -386,7 +420,7 @@ The implementation is complete when tests cover:
 - capture and durable profiles
 - all lifecycle warnings
 - heading recommendations by type
-- frontmatter relationship information diagnostics
+- frontmatter relationship edge parsing and validation
 - custom frontmatter keys without warnings
 - deterministic diagnostic ordering
 - text and parseable JSON output
@@ -398,8 +432,6 @@ The implementation is complete when tests cover:
 
 ## Deferred Implementation Decisions
 
-- indexing frontmatter `links` and `sources` as graph edges
-- including aliases in FTS and backlink resolution
 - using `updated_at` rather than mtime for freshness
 - structured citation fields and source deduplication
 - controlled vocabularies for tags and domains

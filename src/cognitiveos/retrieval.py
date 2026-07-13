@@ -4,6 +4,7 @@ import json
 import math
 import re
 import sqlite3
+from collections import defaultdict
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -15,10 +16,15 @@ from .embedding_index import (
     search_embedding_index,
 )
 from .embeddings import EmbeddingError, EmbeddingProvider, embed_query, provider_identity
-from .indexer import VaultIndex, default_index_path
+from .indexer import VaultIndex, default_index_path, frontmatter_string_values
 from .models import ContextPack, SearchResult
 from .parser import parse_markdown_file
 from .safety import resolve_vault_root, safe_resolve_inside
+
+GraphRelationship = dict[str, set[str]]
+GraphAdjacency = dict[str, dict[str, GraphRelationship]]
+GraphFileSignature = tuple[int, int, int, int]
+GraphGeneration = tuple[int, int, int, int, int, str, int, int, int]
 
 
 class RetrievalService:
@@ -40,6 +46,8 @@ class RetrievalService:
             if embedding_db_path
             else default_embedding_index_path(self.vault_root)
         )
+        self._graph_cache_generation: GraphGeneration | None = None
+        self._graph_cache: GraphAdjacency | None = None
 
     def ensure_index(self) -> None:
         with VaultIndex(self.db_path) as index:
@@ -264,30 +272,206 @@ class RetrievalService:
 
     def get_backlinks(self, note_id: str) -> list[dict[str, Any]]:
         self.ensure_index()
-        with closing(sqlite3.connect(self.db_path)) as conn:
-            conn.row_factory = sqlite3.Row
-            target = conn.execute("SELECT note_id, path, title FROM notes WHERE note_id = ?", (note_id,)).fetchone()
-            if target is None:
-                raise KeyError("note not found")
-            candidates = {target["note_id"], target["path"], target["title"], Path(target["path"]).stem}
-            placeholders = ",".join("?" for _ in candidates)
-            rows = conn.execute(
-                f"""
-                SELECT DISTINCT n.note_id, n.path, n.title, n.type, l.target
-                FROM links l
-                JOIN notes n ON n.note_id = l.source_note_id
-                WHERE l.target IN ({placeholders})
-                ORDER BY n.title
-                """,
-                tuple(candidates),
-            ).fetchall()
-            return [dict(row) for row in rows]
+        target_metadata = self._note_metadata({note_id})
+        if note_id not in target_metadata:
+            raise KeyError("note not found")
+        incoming = {
+            neighbor_id: relationship
+            for neighbor_id, relationship in self._graph_adjacency().get(note_id, {}).items()
+            if "incoming" in relationship["directions"]
+        }
+        metadata = self._note_metadata(set(incoming))
+        backlinks = [
+            {
+                "note_id": neighbor_id,
+                "path": metadata[neighbor_id]["path"],
+                "title": metadata[neighbor_id]["title"],
+                "type": metadata[neighbor_id]["type"],
+                "target": min(relationship["targets"]),
+            }
+            for neighbor_id, relationship in incoming.items()
+            if neighbor_id in metadata
+        ]
+        backlinks.sort(key=lambda item: (item["title"], item["path"]))
+        return backlinks
 
     def get_related_notes(self, note_id: str, limit: int = 10) -> list[dict[str, Any]]:
         note = self.read_note(note_id=note_id)
+        requested_limit = max(1, min(limit, 50))
         query = " ".join([note["title"], *[heading["text"] for heading in note["headings"][:3]]]).strip()
-        results = [result for result in self.search_notes(query, limit=limit + 1) if result.note_id != note_id]
-        return [search_result_to_dict(result) for result in results[:limit]]
+        lexical = [
+            result
+            for result in self.search_notes(query, limit=min(max(requested_limit * 4, 20), 50))
+            if result.note_id != note_id
+        ]
+        lexical_by_id = {result.note_id: result for result in lexical}
+        lexical_ranks = {result.note_id: rank for rank, result in enumerate(lexical, start=1)}
+        adjacency = self._graph_adjacency()
+        graph_neighbors = adjacency.get(note_id, {})
+        metadata = self._note_metadata(set(graph_neighbors) - set(lexical_by_id))
+        related: list[dict[str, Any]] = []
+        added_ids: set[str] = set()
+
+        def graph_sort_key(item: tuple[str, dict[str, set[str]]]) -> tuple[float, str, str]:
+            neighbor_id, relationship = item
+            lexical_result = lexical_by_id.get(neighbor_id)
+            row = metadata.get(neighbor_id)
+            title = lexical_result.title if lexical_result else str(row["title"] if row else neighbor_id)
+            path = lexical_result.path if lexical_result else str(row["path"] if row else "")
+            return (-graph_relationship_score(relationship), title, path)
+
+        for neighbor_id, relationship in sorted(graph_neighbors.items(), key=graph_sort_key):
+            lexical_result = lexical_by_id.get(neighbor_id)
+            row = metadata.get(neighbor_id)
+            if lexical_result is None and row is None:
+                continue
+            graph_score = graph_relationship_score(relationship)
+            lexical_rank = lexical_ranks.get(neighbor_id)
+            result = SearchResult(
+                note_id=neighbor_id,
+                path=lexical_result.path if lexical_result else str(row["path"]),
+                title=lexical_result.title if lexical_result else str(row["title"]),
+                note_type=lexical_result.note_type if lexical_result else str(row["type"]),
+                score=round(graph_score + (1.0 / (60 + lexical_rank) if lexical_rank else 0.0), 6),
+                matched_excerpt=lexical_result.matched_excerpt if lexical_result else "",
+                retrieval={
+                    "version": "graph-related-v0.1",
+                    "graph_used": True,
+                    "directions": sorted(relationship["directions"]),
+                    "edge_types": sorted(relationship["edge_types"]),
+                    "graph_score": graph_score,
+                    "lexical_rank": lexical_rank,
+                },
+            )
+            related.append(search_result_to_dict(result))
+            added_ids.add(neighbor_id)
+            if len(related) >= requested_limit:
+                return related
+
+        for result in lexical:
+            if result.note_id in added_ids:
+                continue
+            related.append(search_result_to_dict(result))
+            if len(related) >= requested_limit:
+                break
+        return related
+
+    def _graph_adjacency(self) -> GraphAdjacency:
+        signature = self._graph_file_signature()
+        if (
+            self._graph_cache_generation is not None
+            and self._graph_cache_generation[:4] == signature
+            and self._graph_cache is not None
+        ):
+            return self._graph_cache
+        generation = self._graph_index_generation()
+        if self._graph_cache_generation == generation and self._graph_cache is not None:
+            return self._graph_cache
+
+        adjacency = self._build_graph_adjacency()
+        stable_generation = self._graph_index_generation()
+        if stable_generation != generation:
+            adjacency = self._build_graph_adjacency()
+            final_generation = self._graph_index_generation()
+            if final_generation != stable_generation:
+                self._graph_cache_generation = None
+                self._graph_cache = None
+                return adjacency
+            stable_generation = final_generation
+        self._graph_cache_generation = stable_generation
+        self._graph_cache = adjacency
+        return adjacency
+
+    def _graph_index_generation(self) -> GraphGeneration:
+        self.ensure_index()
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            run = conn.execute(
+                """
+                SELECT run_id, status, note_count
+                FROM index_runs
+                ORDER BY run_id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            note_count = int(conn.execute("SELECT count(*) FROM notes").fetchone()[0])
+            link_count = int(conn.execute("SELECT count(*) FROM links").fetchone()[0])
+        return (
+            *self._graph_file_signature(),
+            int(run[0]) if run else 0,
+            str(run[1]) if run else "missing",
+            int(run[2]) if run else 0,
+            note_count,
+            link_count,
+        )
+
+    def _graph_file_signature(self) -> GraphFileSignature:
+        stat = self.db_path.stat() if self.db_path.exists() else None
+        wal_path = Path(f"{self.db_path}-wal")
+        wal_stat = wal_path.stat() if wal_path.exists() else None
+        return (
+            stat.st_mtime_ns if stat else 0,
+            stat.st_size if stat else 0,
+            wal_stat.st_mtime_ns if wal_stat else 0,
+            wal_stat.st_size if wal_stat else 0,
+        )
+
+    def _build_graph_adjacency(self) -> GraphAdjacency:
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            notes = conn.execute("SELECT note_id, path, title FROM notes").fetchall()
+            aliases = conn.execute(
+                """
+                SELECT note_id, value
+                FROM note_frontmatter
+                WHERE key IN ('alias', 'aliases')
+                """
+            ).fetchall()
+            links = conn.execute(
+                "SELECT source_note_id, target, link_type FROM links"
+            ).fetchall()
+
+        strong_identities: dict[str, set[str]] = defaultdict(set)
+        named_identities: dict[str, set[str]] = defaultdict(set)
+        for row in notes:
+            note_id = str(row["note_id"])
+            for value in (note_id, row["path"]):
+                normalized = str(value or "").strip().casefold()
+                if normalized:
+                    strong_identities[normalized].add(note_id)
+            for value in (row["title"], Path(str(row["path"])).stem):
+                normalized = str(value or "").strip().casefold()
+                if normalized:
+                    named_identities[normalized].add(note_id)
+        for row in aliases:
+            normalized = str(row["value"] or "").strip().casefold()
+            if normalized:
+                named_identities[normalized].add(str(row["note_id"]))
+
+        adjacency: GraphAdjacency = defaultdict(dict)
+
+        def add_edge(source_id: str, neighbor_id: str, direction: str, link_type: str, target: str) -> None:
+            relationship = adjacency[source_id].setdefault(
+                neighbor_id,
+                {"directions": set(), "edge_types": set(), "targets": set()},
+            )
+            relationship["directions"].add(direction)
+            relationship["edge_types"].add(link_type)
+            relationship["targets"].add(target)
+
+        for row in links:
+            source_id = str(row["source_note_id"])
+            target = str(row["target"] or "").strip()
+            target_key = target.casefold()
+            target_ids = strong_identities.get(target_key) or named_identities.get(target_key, set())
+            if len(target_ids) != 1:
+                continue
+            target_id = next(iter(target_ids))
+            if source_id == target_id:
+                continue
+            link_type = str(row["link_type"])
+            add_edge(source_id, target_id, "outgoing", link_type, target)
+            add_edge(target_id, source_id, "incoming", link_type, target)
+        return {note_id: dict(neighbors) for note_id, neighbors in adjacency.items()}
 
     def suggest_links(self, note_id: str, limit: int = 10) -> list[dict[str, Any]]:
         note = self.read_note(note_id=note_id)
@@ -305,12 +489,14 @@ class RetrievalService:
             if candidate.note_id == note_id:
                 continue
             target_names = {candidate.note_id, candidate.path, candidate.title, Path(candidate.path).stem}
+            candidate_note = self.read_note(note_id=candidate.note_id)
+            target_names.update(frontmatter_string_values(candidate_note["frontmatter"].get("aliases")))
             if existing_targets.intersection(target_names):
                 continue
-            candidate_note = self.read_note(note_id=candidate.note_id)
             candidate_text = " ".join(
                 [
                     candidate_note["title"],
+                    *frontmatter_string_values(candidate_note["frontmatter"].get("aliases")),
                     *[heading["text"] for heading in candidate_note["headings"][:5]],
                     candidate_note["body"][:800],
                 ]
@@ -395,7 +581,10 @@ class RetrievalService:
         token_budget = validate_token_budget(token_budget)
         candidate_limit = min(max(limit * 4, 20), 50)
         candidates = self.search_notes(query, limit=candidate_limit, semantic_mode=semantic_mode)
-        selected_results = select_diverse_results(candidates, limit)
+        graph_adjacency = self._graph_adjacency()
+        selected_results = select_diverse_results(candidates, limit, graph_adjacency)
+        graph_pairs: set[tuple[str, str]] = set()
+        graph_connected_source_count = 0
         included_results: list[SearchResult] = []
         source_lines: list[list[str]] = []
         sources: list[dict[str, Any]] = []
@@ -439,6 +628,24 @@ class RetrievalService:
                     "_pending_evidence": summary.get("evidence", [])[:3],
                 }
             )
+
+        included_ids = {result.note_id for result in included_results}
+        for source in sources:
+            graph_connections = []
+            edge_types: set[str] = set()
+            for neighbor_id, relationship in sorted(graph_adjacency.get(source["note_id"], {}).items()):
+                if neighbor_id not in included_ids:
+                    continue
+                graph_connections.append(neighbor_id)
+                edge_types.update(relationship["edge_types"])
+                graph_pairs.add(tuple(sorted((source["note_id"], neighbor_id))))
+            if graph_connections:
+                graph_connected_source_count += 1
+            source["selection"] = {
+                "version": "type-diverse-graph-v0.1",
+                "graph_connected_to": graph_connections,
+                "graph_edge_types": sorted(edge_types),
+            }
 
         pending_items: list[list[tuple[str, str]]] = []
         for source in sources:
@@ -492,6 +699,9 @@ class RetrievalService:
                 "evidence_path_count": len(evidence_paths),
                 "key_point_count": len(key_points[:12]),
                 "source_word_count": total_word_count,
+                "selection_version": "type-diverse-graph-v0.1",
+                "graph_edge_count": len(graph_pairs),
+                "graph_connected_source_count": graph_connected_source_count,
             },
             budget={
                 "requested_tokens": token_budget,
@@ -526,6 +736,12 @@ class RetrievalService:
                            FROM headings h
                            WHERE h.note_id = n.note_id
                        ), '') AS heading_text,
+                       COALESCE((
+                           SELECT group_concat(nf.value, '\n')
+                           FROM note_frontmatter nf
+                           WHERE nf.note_id = n.note_id
+                             AND nf.key IN ('alias', 'aliases')
+                       ), '') AS alias_text,
                        snippet(fts_notes, 2, '<mark>', '</mark>', '...', 24) AS matched_excerpt
                 FROM fts_notes
                 JOIN notes n ON n.note_id = fts_notes.note_id
@@ -550,9 +766,9 @@ class RetrievalService:
     ) -> list[sqlite3.Row]:
         filter_sql, filter_params = build_note_filters(note_type, status, domain, tag)
         terms = search_terms(query)
-        like_clauses = " OR ".join(["n.title LIKE ? OR f.body LIKE ?" for _ in terms])
+        like_clauses = " OR ".join(["f.title LIKE ? OR f.body LIKE ?" for _ in terms])
         if not like_clauses:
-            like_clauses = "n.title LIKE ? OR f.body LIKE ?"
+            like_clauses = "f.title LIKE ? OR f.body LIKE ?"
             terms = [query]
         like_params: list[Any] = []
         for term in terms:
@@ -567,6 +783,12 @@ class RetrievalService:
                        FROM headings h
                        WHERE h.note_id = n.note_id
                    ), '') AS heading_text,
+                   COALESCE((
+                       SELECT group_concat(nf.value, '\n')
+                       FROM note_frontmatter nf
+                       WHERE nf.note_id = n.note_id
+                         AND nf.key IN ('alias', 'aliases')
+                   ), '') AS alias_text,
                    n.body_preview AS matched_excerpt
             FROM notes n
             JOIN fts_notes f ON f.note_id = n.note_id
@@ -620,26 +842,51 @@ def estimate_tokens(text: str) -> int:
     return math.ceil(ascii_characters / 4) + non_ascii_characters
 
 
-def select_diverse_results(results: list[SearchResult], limit: int) -> list[SearchResult]:
+def select_diverse_results(
+    results: list[SearchResult],
+    limit: int,
+    graph_adjacency: GraphAdjacency | None = None,
+) -> list[SearchResult]:
+    if not results or limit < 1:
+        return []
+    graph_adjacency = graph_adjacency or {}
+    ranks = {result.note_id: rank for rank, result in enumerate(results)}
+    remaining = list(results)
     selected: list[SearchResult] = []
     selected_ids: set[str] = set()
     selected_types: set[str] = set()
-    for result in results:
-        if result.note_type in selected_types:
-            continue
-        selected.append(result)
-        selected_ids.add(result.note_id)
-        selected_types.add(result.note_type)
-        if len(selected) >= limit:
-            return selected
-    for result in results:
-        if result.note_id in selected_ids:
-            continue
-        selected.append(result)
-        selected_ids.add(result.note_id)
-        if len(selected) >= limit:
-            break
+
+    while remaining and len(selected) < limit:
+        if not selected:
+            chosen = remaining[0]
+        else:
+            diverse_pool = [result for result in remaining if result.note_type not in selected_types]
+            pool = diverse_pool or remaining
+
+            def selection_key(result: SearchResult) -> tuple[int, int]:
+                connected = sum(
+                    neighbor_id in selected_ids
+                    for neighbor_id in graph_adjacency.get(result.note_id, {})
+                )
+                return (-connected, ranks[result.note_id])
+
+            chosen = min(pool, key=selection_key)
+        selected.append(chosen)
+        selected_ids.add(chosen.note_id)
+        selected_types.add(chosen.note_type)
+        remaining.remove(chosen)
     return selected
+
+
+def graph_relationship_score(relationship: dict[str, set[str]]) -> float:
+    directions = relationship.get("directions", set())
+    score = 0.0
+    if "outgoing" in directions:
+        score += 3.0
+    if "incoming" in directions:
+        score += 2.0
+    score += 0.1 * len(relationship.get("edge_types", set()))
+    return round(score, 6)
 
 
 def render_context(source_lines: list[list[str]]) -> str:
@@ -697,6 +944,7 @@ def search_relevance_score(query: str, row: sqlite3.Row) -> float:
     note_type = str(row["type"] or "")
     status = str(row["status"] or "")
     excerpt = str(row["matched_excerpt"] or "")
+    aliases = [alias.strip() for alias in str(row["alias_text"] or "").splitlines() if alias.strip()]
     title_terms = keyword_set(title)
     heading_terms = keyword_set(heading_text)
     path_terms = keyword_set(path.replace("/", " ").replace("-", " ").replace("_", " "))
@@ -708,7 +956,14 @@ def search_relevance_score(query: str, row: sqlite3.Row) -> float:
         score += 12.0
     elif query_lower and query_lower in title_lower:
         score += 8.0
+    alias_lowers = [alias.casefold() for alias in aliases if alias.casefold() != title.casefold()]
+    if query_lower and query_lower in alias_lowers:
+        score += 10.0
+    elif query_lower and any(query_lower in alias for alias in alias_lowers):
+        score += 6.0
     score += 4.0 * len(terms.intersection(title_terms))
+    alias_terms = keyword_set(" ".join(aliases))
+    score += 3.0 * len(terms.intersection(alias_terms))
     score += 2.5 * len(terms.intersection(heading_terms))
     score += 1.5 * len(terms.intersection(path_terms))
     score += 0.5 * len(terms.intersection(excerpt_terms))

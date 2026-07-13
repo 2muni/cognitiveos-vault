@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `62` unit tests
+- `71` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -298,14 +298,13 @@ Completed implementation gates:
 - keep semantic retrieval disabled by default
 - pass the privacy, fallback, lexical non-regression, and source checksum gates
 
-Remaining release operations are tracked separately in
-`System/docs/release-v0.3.md`. Do not publish an intermediate alpha GitHub
-Release; the next public v0.3 artifact is the final approved stable release.
+The completed v0.3 release operations and immutable publication record are
+tracked separately in `System/docs/release-v0.3.md`.
 
 Release policy:
 
 - `System/docs/release-v0.1.md`
-- current release-candidate package version: `0.3.0`
+- current development package version: `0.4.0a1`
 - latest published stable tag and GitHub Release: `v0.3.0`
 
 ## Next Read-only Quality Phase
@@ -357,8 +356,58 @@ Completed third implementation unit:
 - canonical template exemption from authoring-completeness diagnostics
 - aggregate actual-vault audit: 8 errors, 18 warnings, and 3 information items
 
+## Alias-aware Retrieval Development
+
+Status: Implemented on the `0.4.0a1` feature branch; integration pending.
+
+Delivered:
+
+- aliases included in derived FTS candidate text without changing the SQLite
+  schema or canonical title
+- exact and partial alias ranking signals below exact canonical-title ranking
+- alias-aware backlink target resolution
+- alias-aware existing-link suppression in `suggest_links`
+- English, Korean, reindex, backlink, and ranking regression coverage
+
+Completed follow-up indexing unit:
+
+- frontmatter `links` and `sources` normalized into typed derived graph edges
+- raw ids, titles, aliases, paths, wikilinks, Markdown links, and URLs accepted
+- frontmatter edge line numbers represented as `NULL`
+- backlink source-note deduplication across multiple target spellings and edge
+  types
+- frontmatter edges included in `read_note` and existing-link suppression
+- validator information warning removed now that the fields are operational
+- aggregate actual-vault diagnostics now remain at 8 errors and 18 warnings
+  with relationship information diagnostics reduced from 3 to 0
+
+Completed graph retrieval unit:
+
+- one deterministic identity resolver for backlinks, related notes, and
+  context-pack graph signals
+- exact note id and path precedence over colliding aliases or titles
+- ambiguous aliases and titles rejected instead of expanding to multiple notes
+- outgoing graph neighbors ranked before incoming neighbors in
+  `get_related_notes`, with lexical fallback preserved
+- note-type-diverse context selection prefers graph-connected candidates within
+  the eligible type
+- source-level and aggregate graph selection diagnostics
+- generic lexical and hybrid `search_notes` ranking left unchanged
+
+Completed graph cache unit:
+
+- service-local adjacency reuse across backlink, related-note, and context-pack
+  calls
+- fast cache-hit signature check without opening SQLite
+- generation confirmation using index run, status, note, and link state
+- main SQLite and WAL mutation invalidation
+- one retry for concurrent generation changes and no-cache fallback if the
+  generation remains unstable
+- actual-vault cache-hit benchmark reduced from about 1.78 ms to roughly
+  0.03–0.05 ms per call on this device
+
 Recommended model:
 
-- `Sol / medium` for v0.3 integration and release stabilization
+- `Sol / medium` for alias-aware retrieval integration and regression review
 - `Sol / high` for writeback, schema, authorization, or security work
 - `Sol / ultra` only for high-impact migrations or permission-boundary changes

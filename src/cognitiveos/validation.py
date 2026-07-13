@@ -360,19 +360,6 @@ def _field_diagnostics(
                 )
             )
 
-    for field_name in ("links", "sources"):
-        value = frontmatter.get(field_name)
-        if isinstance(value, list) and value:
-            diagnostics.append(
-                diagnostic(
-                    "frontmatter_relationship_not_indexed",
-                    "info",
-                    path,
-                    f"frontmatter {field_name} are not indexed as relationship edges; use body links",
-                    line=field_lines.get(field_name),
-                    field=field_name,
-                )
-            )
     return diagnostics
 
 
@@ -438,7 +425,7 @@ def _authoring_diagnostics(
                         )
                     )
                     break
-    if type_is_valid:
+    if type_is_valid and not is_layer_spec_path(path):
         existing_headings = {heading.strip().casefold() for heading in section_headings}
         missing_headings: list[str] = []
         for expected_heading in RECOMMENDED_HEADINGS.get(note_type, ()):
@@ -642,6 +629,10 @@ def is_user_authored_path(path: str) -> bool:
 
 def is_template_path(path: str) -> bool:
     return path.startswith("System/templates/")
+
+
+def is_layer_spec_path(path: str) -> bool:
+    return Path(path).name == "__SPECS__.md"
 
 
 def _nonempty_string(value: Any) -> bool:

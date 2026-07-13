@@ -14,6 +14,7 @@ from contextlib import closing
 from contextlib import redirect_stderr
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -54,7 +55,7 @@ from cognitiveos.evaluation import (
     mean_reciprocal_rank,
     recall_at_k,
 )
-from cognitiveos.mcp_server import handle_message
+from cognitiveos.mcp_server import handle_message, set_fastmcp_server_version
 from cognitiveos.models import SearchResult
 from cognitiveos.parser import parse_markdown_file
 from cognitiveos.retrieval import RetrievalService, estimate_tokens, select_diverse_results
@@ -163,6 +164,12 @@ type: concept
 title: Local-first PKM
 aliases: [Local PKM]
 status: active
+links:
+  - "[[Related Note|related]]"
+  - related_note_id
+  - "[[Related Note|duplicate display]]"
+sources:
+  - "[Specification](https://example.com/spec)"
 ---
 # Local-first PKM
 
@@ -176,7 +183,19 @@ See [[Source Note|source]] and [example](https://example.com).
         self.assertEqual(note.note_type, "concept")
         self.assertEqual(note.title, "Local-first PKM")
         self.assertEqual(note.headings[0].text, "Local-first PKM")
-        self.assertEqual({link.link_type for link in note.links}, {"wikilink", "markdown"})
+        self.assertEqual(
+            {link.link_type for link in note.links},
+            {"wikilink", "markdown", "frontmatter_link", "frontmatter_source"},
+        )
+        frontmatter_links = [link for link in note.links if link.line is None]
+        self.assertEqual(
+            [(link.target, link.link_type) for link in frontmatter_links],
+            [
+                ("Related Note", "frontmatter_link"),
+                ("related_note_id", "frontmatter_link"),
+                ("https://example.com/spec", "frontmatter_source"),
+            ],
+        )
 
     def test_missing_frontmatter_uses_runtime_defaults(self) -> None:
         path = self.write_note("Inbox/raw.md", "# Raw Capture\n\nhello")
@@ -198,6 +217,39 @@ See [[Source Note|source]] and [example](https://example.com).
         note = parse_markdown_file(path, self.root)
 
         self.assertEqual(note.note_type, "system")
+
+    def test_versioned_templates_use_distinct_path_derived_runtime_ids(self) -> None:
+        first_path = self.write_note(
+            "System/templates/v0.1/concept.md",
+            """---
+id: concept_YYYYMMDD_slug
+type: concept
+status: seed
+---
+# Concept title
+""",
+        )
+        second_path = self.write_note(
+            "System/templates/v0.2/concept.md",
+            """---
+id: concept_YYYYMMDD_slug
+type: concept
+status: seed
+---
+# Concept title
+""",
+        )
+
+        first = parse_markdown_file(first_path, self.root)
+        second = parse_markdown_file(second_path, self.root)
+
+        self.assertTrue(first.note_id.startswith("note_"))
+        self.assertTrue(second.note_id.startswith("note_"))
+        self.assertNotEqual(first.note_id, second.note_id)
+
+        self.assertEqual(self.index(), 2)
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0], 2)
 
     def test_broken_yaml_does_not_fail_parsing(self) -> None:
         path = self.write_note("broken.md", "---\ntitle: [broken\n---\n# Body")
@@ -296,6 +348,58 @@ updated_at: July 13
             )),
         )
 
+    def test_layer_specs_are_valid_system_notes_without_standard_heading_profile(self) -> None:
+        path = self.write_note(
+            "01_Concepts/__SPECS__.md",
+            """---
+id: system_spec_concepts
+type: system
+layer: concepts
+purpose: abstract_knowledge
+scope: vault-wide
+status: active
+---
+# Concepts
+
+## 1. Purpose
+
+Define the operational contract for this layer.
+
+## 2. What Belongs Here
+
+Reusable concepts belong here.
+""",
+        )
+
+        state, diagnostics = validate_note_file(path, self.root)
+        parsed = parse_markdown_file(path, self.root)
+
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(state.effective_id, "system_spec_concepts")
+        self.assertEqual(state.effective_type, "system")
+        self.assertEqual(parsed.note_id, "system_spec_concepts")
+        self.assertEqual(parsed.note_type, "system")
+
+    def test_layer_spec_profile_still_enforces_frontmatter_contract(self) -> None:
+        path = self.write_note(
+            "01_Concepts/__SPECS__.md",
+            """---
+id: system_spec_concepts
+type: system_readme
+status: finished
+---
+# Concepts
+
+## 1. Purpose
+""",
+        )
+
+        _state, diagnostics = validate_note_file(path, self.root)
+        codes = {item.code for item in diagnostics}
+
+        self.assertIn("invalid_type", codes)
+        self.assertIn("invalid_status", codes)
+
     def test_authoring_warnings_and_relationship_information(self) -> None:
         self.write_note(
             "00_Inbox/active.md",
@@ -321,7 +425,7 @@ layer: personal
         self.assertIn("lifecycle_inbox_status_mismatch", codes)
         self.assertIn("title_heading_mismatch", codes)
         self.assertIn("tag_domain_noncanonical", codes)
-        self.assertIn("frontmatter_relationship_not_indexed", codes)
+        self.assertNotIn("frontmatter_relationship_not_indexed", codes)
         self.assertIn("visibility_is_not_access_control", codes)
         self.assertNotIn("unknown_field", codes)
         self.assertEqual(report.exit_code, 0)
@@ -1236,6 +1340,478 @@ Semantic retrieval links to [[Beta]].
 
 
 class RetrievalTests(CognitiveOSTestCase):
+    def test_graph_adjacency_cache_hits_and_invalidates_after_reindex(self) -> None:
+        self.write_note(
+            "source.md",
+            """---
+id: cache_source
+type: project
+title: Cache Source
+links:
+  - first_target
+---
+# Cache Source
+""",
+        )
+        self.write_note("first.md", "---\nid: first_target\ntype: concept\ntitle: First\n---\n# First")
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        with patch.object(
+            service,
+            "_build_graph_adjacency",
+            wraps=service._build_graph_adjacency,
+        ) as build_graph:
+            first = service._graph_adjacency()
+            second = service._graph_adjacency()
+            self.assertIs(first, second)
+            self.assertEqual(build_graph.call_count, 1)
+
+            self.write_note("second.md", "---\nid: second_target\ntype: concept\ntitle: Second\n---\n# Second")
+            self.write_note(
+                "source.md",
+                """---
+id: cache_source
+type: project
+title: Cache Source
+links:
+  - second_target
+---
+# Cache Source
+""",
+            )
+            self.index()
+            rebuilt = service._graph_adjacency()
+
+        self.assertIsNot(first, rebuilt)
+        self.assertEqual(build_graph.call_count, 2)
+        self.assertIn("second_target", rebuilt["cache_source"])
+        self.assertNotIn("first_target", rebuilt["cache_source"])
+
+        other_service = RetrievalService(self.root, self.db_path)
+        other = other_service._graph_adjacency()
+        self.assertIsNot(rebuilt, other)
+        self.assertEqual(rebuilt, other)
+
+    def test_graph_cache_detects_same_size_direct_link_mutation(self) -> None:
+        self.write_note(
+            "source.md",
+            """---
+id: direct_source
+type: project
+title: Direct Source
+links:
+  - target_a
+---
+# Direct Source
+""",
+        )
+        self.write_note("a.md", "---\nid: target_a\ntype: concept\ntitle: A\n---\n# A")
+        self.write_note("b.md", "---\nid: target_b\ntype: concept\ntitle: B\n---\n# B")
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+        first = service._graph_adjacency()
+
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute(
+                "UPDATE links SET target = ? WHERE source_note_id = ?",
+                ("target_b", "direct_source"),
+            )
+            conn.commit()
+
+        second = service._graph_adjacency()
+
+        self.assertIsNot(first, second)
+        self.assertIn("target_b", second["direct_source"])
+        self.assertNotIn("target_a", second["direct_source"])
+
+    def test_graph_cache_detects_wal_link_mutation(self) -> None:
+        self.write_note(
+            "source.md",
+            """---
+id: wal_source
+type: project
+title: WAL Source
+links:
+  - wal_target_a
+---
+# WAL Source
+""",
+        )
+        self.write_note("a.md", "---\nid: wal_target_a\ntype: concept\ntitle: A\n---\n# A")
+        self.write_note("b.md", "---\nid: wal_target_b\ntype: concept\ntitle: B\n---\n# B")
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+        first = service._graph_adjacency()
+
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            self.assertEqual(conn.execute("PRAGMA journal_mode=WAL").fetchone()[0], "wal")
+            conn.execute(
+                "UPDATE links SET target = ? WHERE source_note_id = ?",
+                ("wal_target_b", "wal_source"),
+            )
+            conn.commit()
+            second = service._graph_adjacency()
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+        self.assertIsNot(first, second)
+        self.assertIn("wal_target_b", second["wal_source"])
+        self.assertNotIn("wal_target_a", second["wal_source"])
+
+    def test_graph_resolution_prefers_exact_id_over_alias_collision(self) -> None:
+        self.write_note(
+            "exact.md",
+            """---
+id: shared_identity
+type: concept
+title: Exact Identity Target
+status: evergreen
+---
+# Exact Identity Target
+""",
+        )
+        self.write_note(
+            "alias.md",
+            """---
+id: alias_collision
+type: concept
+title: Alias Collision
+aliases:
+  - shared_identity
+status: evergreen
+---
+# Alias Collision
+""",
+        )
+        self.write_note(
+            "source.md",
+            """---
+id: collision_source
+type: project
+title: Collision Source
+status: active
+links:
+  - shared_identity
+---
+# Collision Source
+""",
+        )
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        adjacency = service._graph_adjacency()
+
+        self.assertIn("shared_identity", adjacency["collision_source"])
+        self.assertNotIn("alias_collision", adjacency["collision_source"])
+        self.assertEqual(
+            [item["note_id"] for item in service.get_backlinks("shared_identity")],
+            ["collision_source"],
+        )
+
+    def test_graph_resolution_rejects_ambiguous_alias_targets(self) -> None:
+        for note_id, title in (("first_target", "First Target"), ("second_target", "Second Target")):
+            self.write_note(
+                f"{note_id}.md",
+                f"""---
+id: {note_id}
+type: concept
+title: {title}
+aliases:
+  - Shared Alias
+status: evergreen
+---
+# {title}
+""",
+            )
+        self.write_note(
+            "source.md",
+            """---
+id: ambiguous_source
+type: project
+title: Ambiguous Source
+status: active
+links:
+  - Shared Alias
+---
+# Ambiguous Source
+""",
+        )
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        adjacency = service._graph_adjacency()
+
+        self.assertNotIn("ambiguous_source", adjacency)
+        self.assertEqual(service.get_backlinks("first_target"), [])
+        self.assertEqual(service.get_backlinks("second_target"), [])
+
+    def test_related_notes_prioritize_outgoing_then_incoming_graph_edges(self) -> None:
+        self.write_note(
+            "anchor.md",
+            """---
+id: graph_anchor
+type: project
+title: Graph Anchor
+status: active
+links:
+  - outgoing_target
+---
+# Graph Anchor
+
+Anchor terminology for lexical matching.
+""",
+        )
+        self.write_note(
+            "outgoing.md",
+            """---
+id: outgoing_target
+type: source
+title: Unrelated Outgoing Source
+status: evergreen
+---
+# Unrelated Outgoing Source
+
+Explicitly connected evidence.
+""",
+        )
+        self.write_note(
+            "incoming.md",
+            """---
+id: incoming_source
+type: concept
+title: Incoming Concept
+status: active
+links:
+  - graph_anchor
+---
+# Incoming Concept
+
+Points back to the anchor.
+""",
+        )
+        self.write_note(
+            "lexical.md",
+            """---
+id: lexical_only
+type: concept
+title: Graph Anchor Terminology
+status: active
+---
+# Graph Anchor Terminology
+
+Graph Anchor terminology appears repeatedly without an explicit edge.
+""",
+        )
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        related = service.get_related_notes("graph_anchor", limit=4)
+
+        self.assertEqual([item["note_id"] for item in related[:2]], ["outgoing_target", "incoming_source"])
+        self.assertEqual(related[0]["retrieval"]["directions"], ["outgoing"])
+        self.assertEqual(related[0]["retrieval"]["edge_types"], ["frontmatter_link"])
+        self.assertEqual(related[1]["retrieval"]["directions"], ["incoming"])
+        self.assertGreater(
+            related[0]["retrieval"]["graph_score"],
+            related[1]["retrieval"]["graph_score"],
+        )
+        self.assertIn("lexical_only", [item["note_id"] for item in related])
+
+    def test_context_pack_prefers_graph_connected_source_within_type(self) -> None:
+        self.write_note(
+            "anchor.md",
+            """---
+id: context_anchor
+type: project
+title: Graph Context
+status: active
+sources:
+  - connected_source
+---
+# Graph Context
+
+Graph context evidence selection.
+""",
+        )
+        self.write_note(
+            "unconnected.md",
+            """---
+id: unconnected_source
+type: source
+title: Graph Context Lexical Source
+status: evergreen
+---
+# Graph Context Lexical Source
+
+Graph context graph context graph context lexical evidence.
+""",
+        )
+        self.write_note(
+            "connected.md",
+            """---
+id: connected_source
+type: source
+title: Connected Evidence
+status: evergreen
+---
+# Connected Evidence
+
+Graph context evidence connected explicitly.
+""",
+        )
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        pack = service.build_context_pack("Graph Context", limit=2, token_budget=4000)
+
+        self.assertEqual([item.note_id for item in pack.results], ["context_anchor", "connected_source"])
+        self.assertEqual(pack.stats["selection_version"], "type-diverse-graph-v0.1")
+        self.assertEqual(pack.stats["graph_edge_count"], 1)
+        self.assertEqual(pack.stats["graph_connected_source_count"], 2)
+        source_by_id = {source["note_id"]: source for source in pack.sources}
+        self.assertEqual(
+            source_by_id["context_anchor"]["selection"]["graph_connected_to"],
+            ["connected_source"],
+        )
+        self.assertEqual(
+            source_by_id["connected_source"]["selection"]["graph_edge_types"],
+            ["frontmatter_source"],
+        )
+
+    def test_frontmatter_relationships_are_indexed_as_graph_edges(self) -> None:
+        self.write_note(
+            "spec.md",
+            """---
+id: source_spec
+type: source
+title: Retrieval Specification
+aliases:
+  - Retrieval Spec
+status: evergreen
+---
+# Retrieval Specification
+
+Defines deterministic retrieval behavior.
+""",
+        )
+        self.write_note(
+            "project.md",
+            """---
+id: project_search
+type: project
+title: Search Project
+status: active
+links:
+  - "[[Retrieval Spec]]"
+  - source_spec
+sources:
+  - "[[Retrieval Specification]]"
+  - "[External](https://example.com/spec)"
+---
+# Search Project
+
+Implements deterministic retrieval behavior.
+""",
+        )
+
+        self.assertEqual(self.index(), 2)
+        service = RetrievalService(self.root, self.db_path)
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            rows = conn.execute(
+                """
+                SELECT target, link_type, line
+                FROM links
+                WHERE source_note_id = ?
+                ORDER BY link_type, target
+                """,
+                ("project_search",),
+            ).fetchall()
+        self.assertEqual(
+            rows,
+            [
+                ("Retrieval Spec", "frontmatter_link", None),
+                ("source_spec", "frontmatter_link", None),
+                ("Retrieval Specification", "frontmatter_source", None),
+                ("https://example.com/spec", "frontmatter_source", None),
+            ],
+        )
+        note = service.read_note(note_id="project_search")
+        self.assertEqual(len(note["links"]), 4)
+        backlinks = service.get_backlinks("source_spec")
+        self.assertEqual([item["note_id"] for item in backlinks], ["project_search"])
+        suggestions = service.suggest_links("project_search")
+        self.assertNotIn("source_spec", [item["note_id"] for item in suggestions])
+        self.assertEqual(self.index(), 2)
+
+    def test_aliases_are_searchable_backlink_targets_and_existing_links(self) -> None:
+        self.write_note(
+            "concept.md",
+            """---
+id: concept_rag
+type: concept
+title: Retrieval Augmented Generation
+aliases:
+  - RAG
+  - 검색 증강 생성
+status: evergreen
+---
+# Retrieval Augmented Generation
+
+Combines retrieval with generation.
+""",
+        )
+        self.write_note(
+            "reference.md",
+            """---
+id: alias_reference
+type: source
+title: Alias Reference
+status: active
+---
+# Alias Reference
+
+This note links to [[RAG]].
+""",
+        )
+        self.assertEqual(self.index(), 2)
+        self.assertEqual(self.index(), 2)
+        service = RetrievalService(self.root, self.db_path)
+
+        english = service.search_notes("RAG", limit=5)
+        korean = service.search_notes("검색 증강 생성", limit=5)
+
+        self.assertEqual(english[0].note_id, "concept_rag")
+        self.assertEqual(korean[0].note_id, "concept_rag")
+        self.assertGreaterEqual(english[0].score, 10.0)
+        backlinks = service.get_backlinks("concept_rag")
+        self.assertEqual([item["note_id"] for item in backlinks], ["alias_reference"])
+        suggestions = service.suggest_links("alias_reference")
+        self.assertNotIn("concept_rag", [item["note_id"] for item in suggestions])
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            fts_title = conn.execute(
+                "SELECT title FROM fts_notes WHERE note_id = ?",
+                ("concept_rag",),
+            ).fetchone()[0]
+        self.assertEqual(
+            fts_title.splitlines(),
+            ["Retrieval Augmented Generation", "RAG", "검색 증강 생성"],
+        )
+        self.write_note(
+            "acronym.md",
+            """---
+id: exact_rag
+type: concept
+title: RAG
+status: seed
+---
+# RAG
+
+An exact-title note.
+""",
+        )
+        self.assertEqual(self.index(), 3)
+        self.assertEqual(service.search_notes("RAG", limit=5)[0].note_id, "exact_rag")
+
     def test_search_read_backlinks_and_context_pack(self) -> None:
         self.write_note(
             "alpha.md",
@@ -1492,6 +2068,14 @@ class SchemaFixtureTests(CognitiveOSTestCase):
 
 
 class BasicMCPProtocolTests(CognitiveOSTestCase):
+    def test_fastmcp_stdio_server_uses_cognitiveos_package_version(self) -> None:
+        server = SimpleNamespace(version=None)
+        fastmcp = SimpleNamespace(_mcp_server=server)
+
+        set_fastmcp_server_version(fastmcp)
+
+        self.assertEqual(server.version, __version__)
+
     def test_basic_mcp_initialize_list_and_call(self) -> None:
         self.write_note(
             "concept.md",

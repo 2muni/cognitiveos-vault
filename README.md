@@ -2,8 +2,8 @@
 
 CognitiveOS is a Markdown-first, local-first, MCP-addressable PKM system for an Obsidian vault.
 
-The current implementation is the published read-only semantic-retrieval
-release v0.3.0:
+The latest published stable release is the read-only semantic-retrieval release
+v0.3.0. The current source tree is `0.4.0a1` development:
 
 - scans Markdown notes
 - parses frontmatter, headings, wikilinks, and Markdown links
@@ -25,6 +25,11 @@ Implemented:
 - structured context packs
 - deterministic token budgets and evidence allocation
 - explicit text/JSON CLI output formats
+- deterministic read-only note contract validation and v0.2 templates
+- aliases in lexical search, ranking, backlink targets, and link suggestions
+- frontmatter `links` and `sources` indexed as typed graph edges
+- graph-aware related-note ranking and context-pack source selection
+- service-local graph adjacency cache with index-generation invalidation
 - provider-neutral embedding boundary with strict output validation
 - deterministic `markdown-blocks-v1` embedding chunker and stable chunk ids
 - separate embedding SQLite builder with incremental reuse and atomic publish
@@ -138,7 +143,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 62 tests
+Ran 71 tests
 OK
 ```
 
@@ -355,7 +360,7 @@ System/docs/release-notes-v0.3.0.md
 Current package version:
 
 ```text
-0.3.0
+0.4.0a1
 ```
 
 Published stable release:

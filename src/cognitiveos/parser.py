@@ -34,9 +34,13 @@ def parse_markdown_file(path: str | Path, vault_root: str | Path) -> NoteDocumen
     frontmatter, body = split_frontmatter(text)
     rel_path = absolute.relative_to(root).as_posix()
     headings = extract_headings(body)
-    links = extract_links(body)
+    links = [*extract_links(body), *extract_frontmatter_links(frontmatter)]
     title = derive_title(frontmatter, headings, absolute)
-    note_id = str(frontmatter.get("id") or stable_note_id(rel_path))
+    note_id = (
+        stable_note_id(rel_path)
+        if is_template_path(rel_path)
+        else str(frontmatter.get("id") or stable_note_id(rel_path))
+    )
     note_type = str(frontmatter.get("type") or infer_note_type(rel_path))
     if note_type not in VALID_NOTE_TYPES:
         note_type = "inbox"
@@ -158,6 +162,39 @@ def extract_links(body: str) -> list[Link]:
     return links
 
 
+def extract_frontmatter_links(frontmatter: dict[str, Any]) -> list[Link]:
+    links: list[Link] = []
+    seen: set[tuple[str, str]] = set()
+    for field_name, link_type in (
+        ("links", "frontmatter_link"),
+        ("sources", "frontmatter_source"),
+    ):
+        values = frontmatter.get(field_name)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            target = normalize_frontmatter_link_target(value)
+            key = (link_type, target.casefold())
+            if not target or key in seen:
+                continue
+            seen.add(key)
+            links.append(Link(target=target, link_type=link_type, line=None))
+    return links
+
+
+def normalize_frontmatter_link_target(value: str) -> str:
+    normalized = value.strip()
+    wiki_match = WIKILINK_RE.fullmatch(normalized)
+    if wiki_match:
+        return wiki_match.group(1).split("|", 1)[0].strip()
+    markdown_match = MDLINK_RE.fullmatch(normalized)
+    if markdown_match:
+        return markdown_match.group(2).strip()
+    return normalized
+
+
 def derive_title(frontmatter: dict[str, Any], headings: list[Heading], path: Path) -> str:
     if frontmatter.get("title"):
         return str(frontmatter["title"])
@@ -192,6 +229,10 @@ def infer_note_type(rel_path: str) -> str:
 def stable_note_id(rel_path: str) -> str:
     digest = hashlib.sha1(rel_path.encode("utf-8")).hexdigest()[:16]
     return f"note_{digest}"
+
+
+def is_template_path(rel_path: str) -> bool:
+    return rel_path.startswith("System/templates/")
 
 
 def preview(body: str, limit: int = 240) -> str:

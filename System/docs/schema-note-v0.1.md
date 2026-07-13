@@ -54,10 +54,20 @@ The parser derives these fields for indexing:
 - `checksum`: SHA-256 of the Markdown file
 - `body`: Markdown body without frontmatter
 - `headings`: heading text, level, and line number
-- `outgoing_links`: wikilinks and Markdown links
+- `outgoing_links`: body wikilinks and Markdown links plus typed frontmatter
+  `links` and `sources` edges
 - `body_preview`: shortened body text for search results
 
 Derived fields are not written back to Markdown in v0.1.
+
+`aliases` are optional alternate names. In `0.4.0a1` development they are
+included in the derived lexical title payload and backlink target resolution;
+the canonical `title` remains the display identity.
+
+Frontmatter `links` and `sources` accept lists of strings. Wikilink and Markdown
+link wrappers are normalized to their targets during parsing. They are exposed
+by `read_note` and stored in the derived links table as `frontmatter_link` and
+`frontmatter_source` with no body line number.
 
 ## Path-inferred Types
 

@@ -163,6 +163,12 @@ type: concept
 title: Local-first PKM
 aliases: [Local PKM]
 status: active
+links:
+  - "[[Related Note|related]]"
+  - related_note_id
+  - "[[Related Note|duplicate display]]"
+sources:
+  - "[Specification](https://example.com/spec)"
 ---
 # Local-first PKM
 
@@ -176,7 +182,19 @@ See [[Source Note|source]] and [example](https://example.com).
         self.assertEqual(note.note_type, "concept")
         self.assertEqual(note.title, "Local-first PKM")
         self.assertEqual(note.headings[0].text, "Local-first PKM")
-        self.assertEqual({link.link_type for link in note.links}, {"wikilink", "markdown"})
+        self.assertEqual(
+            {link.link_type for link in note.links},
+            {"wikilink", "markdown", "frontmatter_link", "frontmatter_source"},
+        )
+        frontmatter_links = [link for link in note.links if link.line is None]
+        self.assertEqual(
+            [(link.target, link.link_type) for link in frontmatter_links],
+            [
+                ("Related Note", "frontmatter_link"),
+                ("related_note_id", "frontmatter_link"),
+                ("https://example.com/spec", "frontmatter_source"),
+            ],
+        )
 
     def test_missing_frontmatter_uses_runtime_defaults(self) -> None:
         path = self.write_note("Inbox/raw.md", "# Raw Capture\n\nhello")
@@ -321,7 +339,7 @@ layer: personal
         self.assertIn("lifecycle_inbox_status_mismatch", codes)
         self.assertIn("title_heading_mismatch", codes)
         self.assertIn("tag_domain_noncanonical", codes)
-        self.assertIn("frontmatter_relationship_not_indexed", codes)
+        self.assertNotIn("frontmatter_relationship_not_indexed", codes)
         self.assertIn("visibility_is_not_access_control", codes)
         self.assertNotIn("unknown_field", codes)
         self.assertEqual(report.exit_code, 0)
@@ -1236,6 +1254,71 @@ Semantic retrieval links to [[Beta]].
 
 
 class RetrievalTests(CognitiveOSTestCase):
+    def test_frontmatter_relationships_are_indexed_as_graph_edges(self) -> None:
+        self.write_note(
+            "spec.md",
+            """---
+id: source_spec
+type: source
+title: Retrieval Specification
+aliases:
+  - Retrieval Spec
+status: evergreen
+---
+# Retrieval Specification
+
+Defines deterministic retrieval behavior.
+""",
+        )
+        self.write_note(
+            "project.md",
+            """---
+id: project_search
+type: project
+title: Search Project
+status: active
+links:
+  - "[[Retrieval Spec]]"
+  - source_spec
+sources:
+  - "[[Retrieval Specification]]"
+  - "[External](https://example.com/spec)"
+---
+# Search Project
+
+Implements deterministic retrieval behavior.
+""",
+        )
+
+        self.assertEqual(self.index(), 2)
+        service = RetrievalService(self.root, self.db_path)
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            rows = conn.execute(
+                """
+                SELECT target, link_type, line
+                FROM links
+                WHERE source_note_id = ?
+                ORDER BY link_type, target
+                """,
+                ("project_search",),
+            ).fetchall()
+        self.assertEqual(
+            rows,
+            [
+                ("Retrieval Spec", "frontmatter_link", None),
+                ("source_spec", "frontmatter_link", None),
+                ("Retrieval Specification", "frontmatter_source", None),
+                ("https://example.com/spec", "frontmatter_source", None),
+            ],
+        )
+        note = service.read_note(note_id="project_search")
+        self.assertEqual(len(note["links"]), 4)
+        backlinks = service.get_backlinks("source_spec")
+        self.assertEqual([item["note_id"] for item in backlinks], ["project_search"])
+        suggestions = service.suggest_links("project_search")
+        self.assertNotIn("source_spec", [item["note_id"] for item in suggestions])
+        self.assertEqual(self.index(), 2)
+
     def test_aliases_are_searchable_backlink_targets_and_existing_links(self) -> None:
         self.write_note(
             "concept.md",

@@ -189,8 +189,8 @@ separate migration plan is approved.
 
 ### Canonical relationship representation
 
-Until frontmatter relationships are indexed as graph edges, body wikilinks and
-Markdown links are the canonical operational relationship representation:
+Body wikilinks and Markdown links remain the preferred human-readable
+relationship representation:
 
 ```markdown
 ## Related
@@ -203,9 +203,19 @@ Markdown links are the canonical operational relationship representation:
 - [[CognitiveOS Architecture v0.1]]
 ```
 
-Frontmatter `links` and `sources` remain accepted for v0.1 compatibility, but
-the validator emits `frontmatter_relationship_not_indexed` at information
-severity when they are non-empty. It does not rewrite them.
+Frontmatter `links` and `sources` are also indexed as typed graph edges in
+`0.4.0a1` development. Each field must be a list of strings. Values may be raw
+note ids, titles, aliases, vault-relative paths, wikilinks, Markdown links, or
+external URLs. Wikilink display text and Markdown link labels are removed from
+the derived target. Duplicate values within one field are collapsed
+case-insensitively. Because frontmatter values do not have a body line number,
+their derived edge stores `line=NULL`.
+
+`links` produces `frontmatter_link` edges and `sources` produces
+`frontmatter_source` edges. Body links retain their existing `wikilink` and
+`markdown` types. Backlinks resolve all internal edge types; external URLs stay
+indexed as outgoing source evidence but do not resolve to a note unless they
+match a note identity explicitly. No relationship is written back to Markdown.
 
 ### Source metadata
 
@@ -356,7 +366,6 @@ Warnings:
 
 Information:
 
-- `frontmatter_relationship_not_indexed`
 - `visibility_is_not_access_control`
 - `runtime_default_applied`
 
@@ -388,7 +397,7 @@ The implementation is complete when tests cover:
 - capture and durable profiles
 - all lifecycle warnings
 - heading recommendations by type
-- frontmatter relationship information diagnostics
+- frontmatter relationship edge parsing and validation
 - custom frontmatter keys without warnings
 - deterministic diagnostic ordering
 - text and parseable JSON output
@@ -400,7 +409,6 @@ The implementation is complete when tests cover:
 
 ## Deferred Implementation Decisions
 
-- indexing frontmatter `links` and `sources` as graph edges
 - using `updated_at` rather than mtime for freshness
 - structured citation fields and source deduplication
 - controlled vocabularies for tags and domains

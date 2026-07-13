@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `63` unit tests
+- `64` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -368,6 +368,18 @@ Delivered:
 - alias-aware backlink target resolution
 - alias-aware existing-link suppression in `suggest_links`
 - English, Korean, reindex, backlink, and ranking regression coverage
+
+Completed follow-up indexing unit:
+
+- frontmatter `links` and `sources` normalized into typed derived graph edges
+- raw ids, titles, aliases, paths, wikilinks, Markdown links, and URLs accepted
+- frontmatter edge line numbers represented as `NULL`
+- backlink source-note deduplication across multiple target spellings and edge
+  types
+- frontmatter edges included in `read_note` and existing-link suppression
+- validator information warning removed now that the fields are operational
+- aggregate actual-vault diagnostics now remain at 8 errors and 18 warnings
+  with relationship information diagnostics reduced from 3 to 0
 
 Recommended model:
 

@@ -39,7 +39,8 @@ PRIMARY KEY (note_id, key, value)
 
 ### `links`
 
-Stores outgoing links parsed from Markdown.
+Stores outgoing links parsed from the Markdown body and relationship
+frontmatter.
 
 ```sql
 source_note_id TEXT NOT NULL
@@ -47,6 +48,18 @@ target TEXT NOT NULL
 link_type TEXT NOT NULL
 line INTEGER
 ```
+
+`link_type` values:
+
+- `wikilink`: body wikilink
+- `markdown`: body Markdown link
+- `frontmatter_link`: normalized value from frontmatter `links`
+- `frontmatter_source`: normalized value from frontmatter `sources`
+
+Frontmatter wikilink display text and Markdown link labels are removed before
+storage. Raw ids, titles, aliases, paths, and URLs are preserved as targets.
+Frontmatter edges use `line=NULL`; duplicate targets are collapsed within each
+frontmatter field. A rebuild replaces all derived edge rows.
 
 ### `headings`
 
@@ -84,3 +97,5 @@ Reindexing the same file must update the existing row and replace derived links/
   filename stem
 - link suggestion deduplication treats canonical title and aliases as the same
   target note
+- backlinks return each source note once even if it reaches the target through
+  multiple canonical, alias, body, or frontmatter edges

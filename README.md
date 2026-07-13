@@ -27,6 +27,7 @@ Implemented:
 - explicit text/JSON CLI output formats
 - deterministic read-only note contract validation and v0.2 templates
 - aliases in lexical search, ranking, backlink targets, and link suggestions
+- frontmatter `links` and `sources` indexed as typed graph edges
 - provider-neutral embedding boundary with strict output validation
 - deterministic `markdown-blocks-v1` embedding chunker and stable chunk ids
 - separate embedding SQLite builder with incremental reuse and atomic publish
@@ -140,7 +141,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 63 tests
+Ran 64 tests
 OK
 ```
 

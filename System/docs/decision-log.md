@@ -851,3 +851,39 @@ Implementation checkpoint:
   title payload
 - preserve the scanner-visible and private Markdown aggregate checksums before
   and after the rebuild
+
+### Frontmatter Relationship Edge Indexing
+
+Decision:
+
+- parse valid string-list values from `links` and `sources` into the existing
+  derived `links` table without a schema migration
+- use `frontmatter_link` and `frontmatter_source` edge types and `line=NULL`
+- normalize full wikilinks and Markdown links to their targets while preserving
+  raw ids, titles, aliases, paths, and URLs
+- collapse case-insensitive duplicates within each frontmatter field
+- keep body links and frontmatter relationships available together through
+  `read_note`, backlinks, and link-suggestion deduplication
+- return each backlink source note once when multiple edges reach the same
+  target
+
+Safety and compatibility:
+
+- do not rewrite or migrate source Markdown
+- ignore malformed non-list or non-string values during parsing; retain the
+  validator's schema error
+- remove `frontmatter_relationship_not_indexed` because valid relationships are
+  now operational graph edges
+- require a lexical index rebuild to populate existing frontmatter edges
+
+Implementation checkpoint:
+
+- pass 64 automated tests, including wrapper normalization, duplicate collapse,
+  typed edge persistence, backlink deduplication, and suggestion suppression
+- rebuild the actual-vault index with SQLite integrity `ok`
+- confirm actual frontmatter edges use only `frontmatter_link` or
+  `frontmatter_source` and always store `line=NULL`
+- reduce actual-vault information diagnostics from 3 to 0 while preserving the
+  existing 8 errors and 18 warnings
+- preserve scanner-visible and private Markdown aggregate checksums before and
+  after reindexing

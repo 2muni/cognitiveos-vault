@@ -360,19 +360,6 @@ def _field_diagnostics(
                 )
             )
 
-    for field_name in ("links", "sources"):
-        value = frontmatter.get(field_name)
-        if isinstance(value, list) and value:
-            diagnostics.append(
-                diagnostic(
-                    "frontmatter_relationship_not_indexed",
-                    "info",
-                    path,
-                    f"frontmatter {field_name} are not indexed as relationship edges; use body links",
-                    line=field_lines.get(field_name),
-                    field=field_name,
-                )
-            )
     return diagnostics
 
 

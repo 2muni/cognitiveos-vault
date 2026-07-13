@@ -282,10 +282,11 @@ class RetrievalService:
             placeholders = ",".join("?" for _ in candidates)
             rows = conn.execute(
                 f"""
-                SELECT DISTINCT n.note_id, n.path, n.title, n.type, l.target
+                SELECT n.note_id, n.path, n.title, n.type, MIN(l.target) AS target
                 FROM links l
                 JOIN notes n ON n.note_id = l.source_note_id
                 WHERE l.target IN ({placeholders})
+                GROUP BY n.note_id, n.path, n.title, n.type
                 ORDER BY n.title
                 """,
                 tuple(candidates),

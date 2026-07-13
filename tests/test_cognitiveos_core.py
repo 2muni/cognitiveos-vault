@@ -66,6 +66,7 @@ from cognitiveos.runtime import (
 from cognitiveos.safety import safe_resolve_inside
 from cognitiveos.sentence_transformers_adapter import SentenceTransformersProvider
 from cognitiveos.sentence_transformers_adapter import APPROVED_MULTILINGUAL_MODEL_ID
+from cognitiveos.validation import VALIDATION_VERSION, validate_note_file, validate_vault
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -210,6 +211,180 @@ See [[Source Note|source]] and [example](https://example.com).
 
         self.assertEqual(note.title, "empty")
         self.assertEqual(note.body, "")
+
+
+class NoteValidationTests(CognitiveOSTestCase):
+    def test_valid_capture_report_is_deterministic_and_read_only(self) -> None:
+        path = self.write_note(
+            "00_Inbox/capture.md",
+            """---
+type: inbox
+status: inbox
+created_at: 2026-07-13
+---
+# Capture title
+
+## Capture
+
+An observation.
+
+## Next
+
+- [ ] Triage this capture.
+""",
+        )
+        before = hashlib.sha256(path.read_bytes()).hexdigest()
+
+        first = validate_vault(self.root)
+        second = validate_vault(self.root)
+
+        self.assertEqual(first, second)
+        self.assertEqual(first.validation_version, VALIDATION_VERSION)
+        self.assertEqual(first.files_scanned, 1)
+        self.assertEqual(first.diagnostics, ())
+        self.assertEqual(first.exit_code, 0)
+        self.assertEqual(before, hashlib.sha256(path.read_bytes()).hexdigest())
+        self.assertFalse((self.root / ".pkm-index").exists())
+
+    def test_duplicate_ids_and_invalid_schema_values_are_errors(self) -> None:
+        self.write_note(
+            "01_Concepts/one.md",
+            """---
+id: concept_duplicate
+type: concept
+status: seed
+created_at: 2026-07-13
+---
+# Shared title
+
+PRIVATE BODY CONTENT MUST NOT APPEAR IN DIAGNOSTICS.
+""",
+        )
+        self.write_note(
+            "01_Concepts/two.md",
+            """---
+id: concept_duplicate
+type: invalid-kind
+status: finished
+tags: retrieval
+confidence: 1.2
+updated_at: July 13
+---
+# Shared title
+""",
+        )
+
+        report = validate_vault(self.root)
+        codes = [item.code for item in report.diagnostics]
+
+        self.assertEqual(codes.count("duplicate_id"), 2)
+        self.assertIn("invalid_type", codes)
+        self.assertIn("invalid_status", codes)
+        self.assertIn("invalid_field_type", codes)
+        self.assertIn("confidence_out_of_range", codes)
+        self.assertIn("invalid_date", codes)
+        self.assertEqual(report.exit_code, 1)
+        self.assertNotIn("PRIVATE BODY CONTENT", json.dumps(report.to_dict()))
+        self.assertEqual(
+            list(report.diagnostics),
+            sorted(report.diagnostics, key=lambda item: (
+                {"error": 0, "warning": 1, "info": 2}[item.severity],
+                item.path,
+                item.line or 0,
+                item.code,
+                item.field or "",
+            )),
+        )
+
+    def test_authoring_warnings_and_relationship_information(self) -> None:
+        self.write_note(
+            "00_Inbox/active.md",
+            """---
+type: inbox
+title: Frontmatter title
+status: active
+created_at: 2026-07-13
+tags:
+  - Knowledge Management
+links: [\"[[Related Note]]\"]
+sources: [\"[[Source Note]]\"]
+visibility: shared
+layer: personal
+---
+# Heading title
+""",
+        )
+
+        report = validate_vault(self.root)
+        codes = {item.code for item in report.diagnostics}
+
+        self.assertIn("lifecycle_inbox_status_mismatch", codes)
+        self.assertIn("title_heading_mismatch", codes)
+        self.assertIn("tag_domain_noncanonical", codes)
+        self.assertIn("frontmatter_relationship_not_indexed", codes)
+        self.assertIn("visibility_is_not_access_control", codes)
+        self.assertNotIn("unknown_field", codes)
+        self.assertEqual(report.exit_code, 0)
+        self.assertEqual(validate_vault(self.root, strict=True).exit_code, 1)
+
+    def test_placeholders_and_broken_frontmatter_are_reported_but_templates_are_exempt(self) -> None:
+        self.write_note(
+            "01_Concepts/placeholder.md",
+            """---
+id: concept_YYYYMMDD_slug
+type: concept
+title: Concept Title
+status: seed
+created_at: YYYY-MM-DD
+updated_at: YYYY-MM-DD
+---
+# Concept Title
+""",
+        )
+        self.write_note(
+            "broken.md",
+            """---
+title: [broken
+---
+# Broken
+""",
+        )
+        self.write_note(
+            "System/templates/v0.2/concept.md",
+            """---
+id: concept_YYYYMMDD_slug
+type: concept
+title: Concept Title
+status: seed
+created_at: YYYY-MM-DD
+updated_at: YYYY-MM-DD
+---
+# Concept Title
+""",
+        )
+
+        report = validate_vault(self.root)
+        codes_by_path = {}
+        for item in report.diagnostics:
+            codes_by_path.setdefault(item.path, set()).add(item.code)
+
+        self.assertIn("template_placeholder_present", codes_by_path["01_Concepts/placeholder.md"])
+        self.assertIn("frontmatter_parse_failed", codes_by_path["broken.md"])
+        self.assertNotIn(
+            "template_placeholder_present",
+            codes_by_path.get("System/templates/v0.2/concept.md", set()),
+        )
+        self.assertNotIn(
+            "invalid_date",
+            codes_by_path.get("System/templates/v0.2/concept.md", set()),
+        )
+
+    def test_validation_rejects_paths_outside_the_vault(self) -> None:
+        outside = self.root.parent / "outside.md"
+        with self.assertRaises(ValueError):
+            validate_note_file(outside, self.root)
+        with self.assertRaisesRegex(ValueError, "scope"):
+            validate_vault(self.root, scope="private")
 
 
 class SafetyTests(CognitiveOSTestCase):

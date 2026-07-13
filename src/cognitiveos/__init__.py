@@ -33,6 +33,13 @@ from .embedding_index import (
     unpack_vector,
 )
 from .sentence_transformers_adapter import SentenceTransformersProvider
+from .validation import (
+    VALIDATION_VERSION,
+    ValidationDiagnostic,
+    ValidationReport,
+    validate_note_file,
+    validate_vault,
+)
 
 __all__ = [
     "EmbeddingConfigurationError",
@@ -51,6 +58,9 @@ __all__ = [
     "CHUNKER_VERSION",
     "DEFAULT_MAX_CHARS",
     "DEFAULT_OVERLAP_CHARS",
+    "VALIDATION_VERSION",
+    "ValidationDiagnostic",
+    "ValidationReport",
     "__version__",
     "embed_documents",
     "embed_query",
@@ -63,6 +73,8 @@ __all__ = [
     "search_embedding_index",
     "stable_chunk_id",
     "unpack_vector",
+    "validate_note_file",
+    "validate_vault",
 ]
 
 __version__ = "0.3.0"

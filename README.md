@@ -137,7 +137,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 53 tests
+Ran 58 tests
 OK
 ```
 
@@ -302,6 +302,17 @@ System/docs/release-v0.3.md
 ```
 
 It also defines the hotfix flow and version bump procedure.
+
+The draft v0.2 note authoring and read-only validation contract is maintained
+in:
+
+```text
+System/docs/note-contract-v0.2.md
+```
+
+It defines capture and durable authoring profiles plus the proposed
+`cognitiveos-validate` diagnostic contract. It does not authorize note
+migration or writeback.
 
 The v0.1.0 release notes are maintained in:
 

@@ -4,10 +4,9 @@
 
 Feature status: complete and integrated into `main`.
 
-Release status: release-candidate verification passed; publication preparation
-is pending.
+Release status: final `0.4.0` release candidate; publication is pending.
 
-Current development identity: `0.4.0a1`.
+Current release-candidate identity: `0.4.0`.
 
 Latest published stable release: `v0.3.0`.
 
@@ -68,9 +67,9 @@ changed in a separate decision.
 - [x] confirm MCP initialize, 9 tools, invalid-call handling, required semantic
       search, writeback-disabled state, and SQLite integrity
 - [x] confirm private Markdown checksums are unchanged by release verification
-- [ ] change package and MCP identity from `0.4.0a1` to `0.4.0`
-- [ ] write `System/docs/release-notes-v0.4.0.md`
-- [ ] cross-check README, roadmap, schemas, package metadata, and release notes
+- [x] change package and MCP identity from `0.4.0a1` to `0.4.0`
+- [x] write `System/docs/release-notes-v0.4.0.md`
+- [x] cross-check README, roadmap, schemas, package metadata, and release notes
 - [ ] obtain explicit user approval before the release commit, annotated tag,
       push, assets, and GitHub Release
 

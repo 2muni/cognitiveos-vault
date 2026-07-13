@@ -86,6 +86,8 @@ verified on Python 3.14.6.
 - SQLite integrity: `ok`; private Markdown aggregate checksum: unchanged
 - clean detached worktree installs and tests both supported runtimes
 - wheel and sdist build; wheel-only installation exposes all five CLI entries
+- public GitHub Release wheel consumer smoke test passes in a new Python 3.12.13
+  environment after SHA-256 verification
 
 Note counts are device-dependent and are not fixed release criteria.
 

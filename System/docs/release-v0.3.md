@@ -88,6 +88,8 @@ These are release operations, not missing v0.3 features:
 - release draft: false
 - prerelease: false
 - release assets: universal wheel and source distribution, verified by SHA-256
+- consumer smoke test: passed on 2026-07-13 using the public wheel URL in a
+  fresh Python 3.12.13 environment
 
 ## Release Decision Rule
 
@@ -124,6 +126,23 @@ The first evaluation attempt reused a path from an interrupted parallel run and
 encountered a SQLite disk I/O error. Repeating in a new unique temporary
 directory passed, confirming an isolated artifact-path collision rather than a
 release-candidate defect.
+
+## Public Consumer Smoke Test
+
+On 2026-07-13, the wheel was downloaded directly from the public GitHub Release
+URL rather than from a local checkout or locally built artifact. Its SHA-256 was
+verified as:
+
+```text
+7360c7b8ef26bfa9d57029402244a224453cce021ef34add6ca141422ff28cbe
+```
+
+The verified wheel installed offline into a new Python 3.12.13 environment as
+`cognitiveos 0.3.0`. The `--help` command completed successfully for all five
+published CLI entry points: `cognitiveos-index`, `cognitiveos-search`,
+`cognitiveos-mcp`, `cognitiveos-embed`, and
+`cognitiveos-evaluate-embeddings`. The test used no vault content or local
+source tree.
 
 Writeback, graph storage, local LLM generation, background model downloads, and
 semantic-by-default behavior remain outside v0.3. They require separate plans

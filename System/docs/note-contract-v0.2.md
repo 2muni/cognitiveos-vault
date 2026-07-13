@@ -151,7 +151,24 @@ domains:
 confidence: 0.8
 ```
 
+### Layer Specification Profile
+
+Files named `__SPECS__.md` are durable operational guidance for a vault layer.
+They use `type: system`, `status: active`, and an explicit stable `id`. Existing
+`layer`, `purpose`, and `scope` fields may describe their operational reach.
+
+Layer specifications retain their numbered, layer-specific section structure,
+so the validator does not require the generic system headings `Purpose`,
+`Specification`, `Rationale`, and `Change Log`. All other frontmatter, identity,
+placeholder, status, and duplicate checks continue to apply. Layer
+specifications remain scanner-visible and searchable; they are not validator or
+index exclusions.
+
 Empty optional arrays should not be required in v0.2 templates.
+Template placeholder IDs are authoring instructions rather than durable note
+identities. At index time, files under `System/templates/` therefore receive a
+deterministic path-derived runtime ID. This keeps versioned templates with the
+same placeholder ID independently searchable without changing template source.
 
 ### Type-specific Body Contracts
 

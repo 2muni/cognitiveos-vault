@@ -217,6 +217,39 @@ See [[Source Note|source]] and [example](https://example.com).
 
         self.assertEqual(note.note_type, "system")
 
+    def test_versioned_templates_use_distinct_path_derived_runtime_ids(self) -> None:
+        first_path = self.write_note(
+            "System/templates/v0.1/concept.md",
+            """---
+id: concept_YYYYMMDD_slug
+type: concept
+status: seed
+---
+# Concept title
+""",
+        )
+        second_path = self.write_note(
+            "System/templates/v0.2/concept.md",
+            """---
+id: concept_YYYYMMDD_slug
+type: concept
+status: seed
+---
+# Concept title
+""",
+        )
+
+        first = parse_markdown_file(first_path, self.root)
+        second = parse_markdown_file(second_path, self.root)
+
+        self.assertTrue(first.note_id.startswith("note_"))
+        self.assertTrue(second.note_id.startswith("note_"))
+        self.assertNotEqual(first.note_id, second.note_id)
+
+        self.assertEqual(self.index(), 2)
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0], 2)
+
     def test_broken_yaml_does_not_fail_parsing(self) -> None:
         path = self.write_note("broken.md", "---\ntitle: [broken\n---\n# Body")
         note = parse_markdown_file(path, self.root)
@@ -313,6 +346,58 @@ updated_at: July 13
                 item.field or "",
             )),
         )
+
+    def test_layer_specs_are_valid_system_notes_without_standard_heading_profile(self) -> None:
+        path = self.write_note(
+            "01_Concepts/__SPECS__.md",
+            """---
+id: system_spec_concepts
+type: system
+layer: concepts
+purpose: abstract_knowledge
+scope: vault-wide
+status: active
+---
+# Concepts
+
+## 1. Purpose
+
+Define the operational contract for this layer.
+
+## 2. What Belongs Here
+
+Reusable concepts belong here.
+""",
+        )
+
+        state, diagnostics = validate_note_file(path, self.root)
+        parsed = parse_markdown_file(path, self.root)
+
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(state.effective_id, "system_spec_concepts")
+        self.assertEqual(state.effective_type, "system")
+        self.assertEqual(parsed.note_id, "system_spec_concepts")
+        self.assertEqual(parsed.note_type, "system")
+
+    def test_layer_spec_profile_still_enforces_frontmatter_contract(self) -> None:
+        path = self.write_note(
+            "01_Concepts/__SPECS__.md",
+            """---
+id: system_spec_concepts
+type: system_readme
+status: finished
+---
+# Concepts
+
+## 1. Purpose
+""",
+        )
+
+        _state, diagnostics = validate_note_file(path, self.root)
+        codes = {item.code for item in diagnostics}
+
+        self.assertIn("invalid_type", codes)
+        self.assertIn("invalid_status", codes)
 
     def test_authoring_warnings_and_relationship_information(self) -> None:
         self.write_note(

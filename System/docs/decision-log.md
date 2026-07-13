@@ -959,3 +959,35 @@ Implementation checkpoint:
 - reduce actual-vault graph cache hits from about 1.78 ms to roughly
   0.03–0.05 ms per call on this device while returning the same adjacency
   object
+
+### Layer Specification Contract and Template Runtime Identity
+
+Decision:
+
+- treat files named `__SPECS__.md` as durable `system` notes with explicit,
+  layer-specific stable ids
+- preserve their numbered, layer-specific body structure instead of requiring
+  the generic system heading profile
+- continue enforcing all frontmatter, status, placeholder, and duplicate-id
+  diagnostics on layer specifications
+- assign files under `System/templates/` deterministic path-derived runtime ids
+  rather than indexing their authoring placeholder ids
+
+Rationale:
+
+- layer specifications are searchable operational knowledge, not validator or
+  index exclusions
+- `system_readme` duplicated the existing `system` semantic type and caused the
+  parser to fall back to `inbox`
+- v0.1 and v0.2 templates intentionally share placeholder ids, so treating
+  those placeholders as runtime identity caused one version to overwrite the
+  other in the derived index
+
+Implementation checkpoint:
+
+- reduce actual-vault validation from 8 errors and 18 warnings to 0 errors and
+  10 warnings without changing specification prose
+- index all 55 scanner-visible Markdown files as 55 notes, 55 unique ids, 55
+  unique paths, and 55 FTS rows with SQLite integrity `ok`
+- confirm a layer specification is searchable as a `system` note
+- pass 74 automated tests with `ResourceWarning` promoted to an error

@@ -80,7 +80,8 @@ Read-only tools:
 - `propose_moc`
 - `build_context_pack`
 
-No MCP tool writes to Markdown in v0.3.0.
+No MCP tool writes to Markdown. The `0.4.0a1` development tree remains
+read-only.
 
 ## Intel Mac Quick Start
 
@@ -103,6 +104,23 @@ System/docs/device-handoff-intel-mac-v0.1.md
 ```
 
 Private note folders and assets are not transferred by Git. Restore them through iCloud Drive, Obsidian Sync, or a separate encrypted transfer before rebuilding the index.
+
+## Local Development Environment
+
+Create the default runtime and install the current source tree with the MCP and
+test extras:
+
+```bash
+uv venv --clear --python 3.14 .venv
+uv pip install --python .venv/bin/python '.[dev,mcp]'
+```
+
+The install is intentionally non-editable. The current Python 3.14 runtime
+skips hidden `.pth` files, while the current `uv` editable flow names its source
+path file `_editable_impl_cognitiveos.pth`. A standard local install keeps all
+six CLI launchers functional. Reinstall after source changes when validating
+the installed CLI surface; source-based tests continue to read `src/`
+directly.
 
 ## Install v0.3.0 Release Assets
 
@@ -143,7 +161,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 71 tests
+Ran 75 tests
 OK
 ```
 
@@ -355,6 +373,12 @@ The published v0.3.0 release notes are maintained in:
 
 ```text
 System/docs/release-notes-v0.3.0.md
+```
+
+The current v0.4 implementation and release gates are maintained in:
+
+```text
+System/docs/release-v0.4.md
 ```
 
 Current package version:

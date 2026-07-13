@@ -400,6 +400,69 @@ visibility: private
         with self.assertRaisesRegex(ValueError, "scope"):
             validate_vault(self.root, scope="private")
 
+    def test_recommended_headings_and_source_locator_are_diagnosed(self) -> None:
+        self.write_note(
+            "01_Concepts/incomplete.md",
+            """---
+id: concept_incomplete
+type: concept
+status: seed
+---
+# Incomplete concept
+
+## Definition
+
+Definition only.
+""",
+        )
+        complete_source_sections = """
+## Citation
+
+## Summary
+
+## Key Claims
+
+## Extracted Concepts
+
+## Personal Notes
+"""
+        self.write_note(
+            "04_References/missing-locator.md",
+            """---
+id: source_missing_locator
+type: source
+status: seed
+---
+# Missing locator
+""" + complete_source_sections,
+        )
+        self.write_note(
+            "04_References/with-locator.md",
+            """---
+id: source_with_locator
+type: source
+status: seed
+url: https://example.com/source
+---
+# Source with locator
+""" + complete_source_sections,
+        )
+
+        report = validate_vault(self.root)
+        codes_by_path: dict[str, list[str]] = {}
+        for item in report.diagnostics:
+            codes_by_path.setdefault(item.path, []).append(item.code)
+
+        self.assertEqual(codes_by_path["01_Concepts/incomplete.md"].count("recommended_heading_missing"), 1)
+        concept_diagnostic = next(
+            item
+            for item in report.diagnostics
+            if item.path == "01_Concepts/incomplete.md" and item.code == "recommended_heading_missing"
+        )
+        self.assertIn("Distinction, Examples, Related, Sources, Open Questions", concept_diagnostic.message)
+        self.assertIn("source_locator_missing", codes_by_path["04_References/missing-locator.md"])
+        self.assertNotIn("source_locator_missing", codes_by_path.get("04_References/with-locator.md", []))
+
 
 class SafetyTests(CognitiveOSTestCase):
     def test_rejects_path_outside_vault(self) -> None:
@@ -1721,6 +1784,14 @@ status: inbox
 created_at: 2026-07-13
 ---
 # Capture
+
+## Capture
+
+Observation.
+
+## Next
+
+- [ ] Triage.
 """,
         )
         text_output = io.StringIO()
@@ -1787,6 +1858,13 @@ type: concept
 status: seed
 ---
 # System-scoped concept
+
+## Definition
+## Distinction
+## Examples
+## Related
+## Sources
+## Open Questions
 """,
         )
 

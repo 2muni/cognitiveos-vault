@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `61` unit tests
+- `62` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -312,8 +312,8 @@ Release policy:
 
 Phase 8: note contract validation and lower-friction authoring.
 
-Status: Design, core validator diagnostics, CLI, and v0.2 templates complete;
-type-specific authoring diagnostics remain deferred.
+Status: Design, validator core, CLI, v0.2 templates, type-specific heading
+guidance, source locator checks, and aggregate actual-vault audit complete.
 
 Planned scope:
 
@@ -347,6 +347,15 @@ Completed second implementation unit:
 - capture and durable profiles without empty optional metadata arrays
 - explicit documentation that the public v0.3.0 wheel predates the validator
   entry point
+
+Completed third implementation unit:
+
+- type-specific recommended heading diagnostics
+- one aggregated missing-heading warning per note to limit diagnostic noise
+- source URL, DOI, locator metadata, and body locator recognition
+- source locator warnings without returning locator values or note content
+- canonical template exemption from authoring-completeness diagnostics
+- aggregate actual-vault audit: 8 errors, 18 warnings, and 3 information items
 
 Recommended model:
 

@@ -3,8 +3,8 @@
 ## Status
 
 - Design status: draft
-- Implementation status: core diagnostics, CLI, and v0.2 templates implemented;
-  type-specific heading diagnostics deferred
+- Implementation status: core diagnostics, CLI, v0.2 templates, type-specific
+  heading guidance, and source locator checks implemented
 - Scope: read-only validation and user-guided templates
 - Migration status: no migration is authorized by this design
 
@@ -262,7 +262,8 @@ The validation core is available in `src/cognitiveos/validation.py`. It provides
 deterministic report and diagnostic data structures plus pure read-only
 validation functions. `cognitiveos-validate` exposes text and JSON output,
 scope selection, strict warning handling, and stable exit codes. Type-specific
-heading and source-locator diagnostics remain deferred.
+heading guidance is aggregated into one warning per note, and source notes are
+checked for a URL, DOI, or another locator without exposing its value.
 
 ### Command
 
@@ -368,9 +369,9 @@ outside the common schema.
 2. [Complete] Add deterministic text and JSON output plus
    `cognitiveos-validate`.
 3. [Complete] Add `System/templates/v0.2/` without modifying `v0.1` templates.
-4. Run the validator against the actual vault and record aggregate diagnostics
-   only; do not expose private note content.
-5. Tune warning severity based on observed false positives.
+4. [Complete] Run the validator against the actual vault and record aggregate
+   diagnostics only; do not expose private note content.
+5. [Complete] Tune initial warning volume based on observed false positives.
 6. Document an opt-in user-guided cleanup workflow.
 7. Consider migrations only under a separate explicit plan and approval.
 

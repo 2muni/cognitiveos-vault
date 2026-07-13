@@ -138,7 +138,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 61 tests
+Ran 62 tests
 OK
 ```
 

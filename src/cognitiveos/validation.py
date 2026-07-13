@@ -34,6 +34,21 @@ PLACEHOLDER_VALUES = {
 }
 PLACEHOLDER_RE = re.compile(r"(?:YYYY(?:-?MM(?:-?DD)?)?|YYYYMMDD_slug)$", re.IGNORECASE)
 KEBAB_CASE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+SOURCE_LOCATOR_RE = re.compile(
+    r"(?:https?://\S+|\bdoi\s*:\s*\S+|\b10\.\d{4,9}/\S+|url or locator\s*:\s*\S+)",
+    re.IGNORECASE,
+)
+RECOMMENDED_HEADINGS = {
+    "inbox": ("Capture", "Next"),
+    "concept": ("Definition", "Distinction", "Examples", "Related", "Sources", "Open Questions"),
+    "source": ("Citation", "Summary", "Key Claims", "Extracted Concepts", "Personal Notes"),
+    "entity": ("Type", "Description", "Relations", "Sources"),
+    "project": ("Goal", "Current State", "Decisions", "Next Actions", "Related Notes"),
+    "map": ("Purpose", "Core Notes", "Clusters", "Open Questions"),
+    "journal": ("Log", "Observations", "Decisions", "Follow-ups"),
+    "system": ("Purpose", "Specification", "Rationale", "Change Log"),
+    "output": ("Brief", "Draft", "Evidence", "Revision Notes"),
+}
 
 
 @dataclass(frozen=True)
@@ -196,7 +211,9 @@ def validate_note_file(
             template_path=is_template_path(rel_path),
         )
     )
-    headings = tuple(item.text for item in extract_headings(body) if item.level == 1)
+    parsed_headings = extract_headings(body)
+    headings = tuple(item.text for item in parsed_headings if item.level == 1)
+    section_headings = tuple(item.text for item in parsed_headings if item.level >= 2)
     explicit_type = frontmatter.get("type")
     effective_type = (
         explicit_type
@@ -212,15 +229,18 @@ def validate_note_file(
 
     if not is_template_path(rel_path):
         diagnostics.extend(_placeholder_diagnostics(rel_path, frontmatter, field_lines, headings))
-    if authoring_scope:
+    if authoring_scope and not is_template_path(rel_path):
         diagnostics.extend(
             _authoring_diagnostics(
                 rel_path,
                 frontmatter,
                 field_lines,
                 headings,
+                section_headings,
+                body,
                 effective_type,
                 effective_status,
+                type_is_valid=explicit_type is None or explicit_type in VALID_NOTE_TYPES,
             )
         )
 
@@ -361,8 +381,12 @@ def _authoring_diagnostics(
     frontmatter: dict[str, Any],
     field_lines: dict[str, int],
     headings: tuple[str, ...],
+    section_headings: tuple[str, ...],
+    body: str,
     note_type: str,
     status: str,
+    *,
+    type_is_valid: bool,
 ) -> list[ValidationDiagnostic]:
     diagnostics: list[ValidationDiagnostic] = []
     if note_type != "inbox" and not _nonempty_string(frontmatter.get("id")):
@@ -414,6 +438,32 @@ def _authoring_diagnostics(
                         )
                     )
                     break
+    if type_is_valid:
+        existing_headings = {heading.strip().casefold() for heading in section_headings}
+        missing_headings: list[str] = []
+        for expected_heading in RECOMMENDED_HEADINGS.get(note_type, ()):
+            if expected_heading.casefold() not in existing_headings:
+                missing_headings.append(expected_heading)
+        if missing_headings:
+            diagnostics.append(
+                diagnostic(
+                    "recommended_heading_missing",
+                    "warning",
+                    path,
+                    f"{note_type} note is missing recommended sections: {', '.join(missing_headings)}",
+                    field="heading",
+                )
+            )
+        if note_type == "source" and not has_source_locator(frontmatter, body):
+            diagnostics.append(
+                diagnostic(
+                    "source_locator_missing",
+                    "warning",
+                    path,
+                    "source notes should include a URL, DOI, or other locator",
+                    field="source",
+                )
+            )
     return diagnostics
 
 
@@ -576,6 +626,14 @@ def is_placeholder_value(value: Any) -> bool:
         return False
     stripped = value.strip()
     return stripped.casefold() in PLACEHOLDER_VALUES or bool(PLACEHOLDER_RE.search(stripped))
+
+
+def has_source_locator(frontmatter: dict[str, Any], body: str) -> bool:
+    for field_name in ("url", "locator", "doi"):
+        value = frontmatter.get(field_name)
+        if isinstance(value, str) and value.strip():
+            return True
+    return bool(SOURCE_LOCATOR_RE.search(body))
 
 
 def is_user_authored_path(path: str) -> bool:

@@ -804,3 +804,17 @@ Second implementation checkpoint:
   describe the validator as development-tree functionality until a future
   package release
 - pass 61 total tests after the CLI and template unit
+
+Third implementation checkpoint:
+
+- add type-specific recommended section checks for all nine note types
+- aggregate all missing sections into one warning per note after the initial
+  actual-vault run produced excessive repeated diagnostics
+- add source locator detection for URL, DOI, locator metadata, and body text
+- exempt canonical templates from authoring-completeness warnings while still
+  validating their schema
+- run the validator against 55 scanner-visible Markdown files without exposing
+  paths or body text
+- record 8 existing type errors, 18 warnings, and 3 information diagnostics
+- preserve Markdown checksums and the existing lexical index modification time
+- pass 62 total tests

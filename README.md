@@ -29,6 +29,7 @@ Implemented:
 - aliases in lexical search, ranking, backlink targets, and link suggestions
 - frontmatter `links` and `sources` indexed as typed graph edges
 - graph-aware related-note ranking and context-pack source selection
+- service-local graph adjacency cache with index-generation invalidation
 - provider-neutral embedding boundary with strict output validation
 - deterministic `markdown-blocks-v1` embedding chunker and stable chunk ids
 - separate embedding SQLite builder with incremental reuse and atomic publish
@@ -142,7 +143,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 68 tests
+Ran 71 tests
 OK
 ```
 

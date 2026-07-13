@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `68` unit tests
+- `71` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -393,6 +393,18 @@ Completed graph retrieval unit:
   the eligible type
 - source-level and aggregate graph selection diagnostics
 - generic lexical and hybrid `search_notes` ranking left unchanged
+
+Completed graph cache unit:
+
+- service-local adjacency reuse across backlink, related-note, and context-pack
+  calls
+- fast cache-hit signature check without opening SQLite
+- generation confirmation using index run, status, note, and link state
+- main SQLite and WAL mutation invalidation
+- one retry for concurrent generation changes and no-cache fallback if the
+  generation remains unstable
+- actual-vault cache-hit benchmark reduced from about 1.78 ms to roughly
+  0.03–0.05 ms per call on this device
 
 Recommended model:
 

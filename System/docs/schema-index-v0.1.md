@@ -114,3 +114,16 @@ bidirectional neighbor receives both signals. Context-pack selection keeps the
 existing note-type-diversity rule, but within an eligible type prefers a
 candidate directly connected to a source already selected. Generic
 `search_notes` ranking is unchanged.
+
+## Graph Projection Cache
+
+Each retrieval service caches one resolved adjacency projection. A cache hit
+first compares the main SQLite file and optional WAL file signatures, avoiding
+SQL and full graph reconstruction. When either signature changes, the service
+confirms the latest index run, run status, indexed-note count, live note count,
+and link count before publishing a replacement cache.
+
+If the generation changes while adjacency is being built, the service rebuilds
+once. If it changes again during that retry, the result is returned for the
+current call but is not cached. Caches are instance-local and contain only
+derived index data; they are never serialized or written to Markdown.

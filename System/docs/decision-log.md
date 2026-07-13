@@ -930,3 +930,32 @@ Implementation checkpoint:
 - complete actual-vault related-note and context-pack graph smoke checks
 - preserve scanner-visible and private Markdown aggregate checksums before and
   after reindexing
+
+### Graph Adjacency Cache
+
+Decision:
+
+- cache one resolved graph adjacency object per retrieval service instance
+- use main SQLite and optional WAL mtime/size signatures for the fast hit path
+- confirm changed signatures with latest index run id, status, indexed count,
+  live note count, and link count
+- rebuild once when the generation changes during construction and avoid
+  caching when a second concurrent change is detected
+- never share mutable adjacency objects across service instances
+
+Rationale:
+
+- backlink, related-note, and context-pack calls otherwise reread all notes,
+  aliases, and links independently
+- file signatures make the common hit path cheap, while index metadata and
+  counts make invalidation auditable
+- WAL awareness prevents stale graph results when SQLite writes have not yet
+  checkpointed into the main database file
+
+Implementation checkpoint:
+
+- pass cache-hit, normal reindex, same-size direct mutation, WAL mutation, and
+  service-isolation tests
+- reduce actual-vault graph cache hits from about 1.78 ms to roughly
+  0.03–0.05 ms per call on this device while returning the same adjacency
+  object

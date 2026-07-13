@@ -21,6 +21,11 @@ from .models import ContextPack, SearchResult
 from .parser import parse_markdown_file
 from .safety import resolve_vault_root, safe_resolve_inside
 
+GraphRelationship = dict[str, set[str]]
+GraphAdjacency = dict[str, dict[str, GraphRelationship]]
+GraphFileSignature = tuple[int, int, int, int]
+GraphGeneration = tuple[int, int, int, int, int, str, int, int, int]
+
 
 class RetrievalService:
     def __init__(
@@ -41,6 +46,8 @@ class RetrievalService:
             if embedding_db_path
             else default_embedding_index_path(self.vault_root)
         )
+        self._graph_cache_generation: GraphGeneration | None = None
+        self._graph_cache: GraphAdjacency | None = None
 
     def ensure_index(self) -> None:
         with VaultIndex(self.db_path) as index:
@@ -349,8 +356,66 @@ class RetrievalService:
                 break
         return related
 
-    def _graph_adjacency(self) -> dict[str, dict[str, dict[str, set[str]]]]:
+    def _graph_adjacency(self) -> GraphAdjacency:
+        signature = self._graph_file_signature()
+        if (
+            self._graph_cache_generation is not None
+            and self._graph_cache_generation[:4] == signature
+            and self._graph_cache is not None
+        ):
+            return self._graph_cache
+        generation = self._graph_index_generation()
+        if self._graph_cache_generation == generation and self._graph_cache is not None:
+            return self._graph_cache
+
+        adjacency = self._build_graph_adjacency()
+        stable_generation = self._graph_index_generation()
+        if stable_generation != generation:
+            adjacency = self._build_graph_adjacency()
+            final_generation = self._graph_index_generation()
+            if final_generation != stable_generation:
+                self._graph_cache_generation = None
+                self._graph_cache = None
+                return adjacency
+            stable_generation = final_generation
+        self._graph_cache_generation = stable_generation
+        self._graph_cache = adjacency
+        return adjacency
+
+    def _graph_index_generation(self) -> GraphGeneration:
         self.ensure_index()
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            run = conn.execute(
+                """
+                SELECT run_id, status, note_count
+                FROM index_runs
+                ORDER BY run_id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            note_count = int(conn.execute("SELECT count(*) FROM notes").fetchone()[0])
+            link_count = int(conn.execute("SELECT count(*) FROM links").fetchone()[0])
+        return (
+            *self._graph_file_signature(),
+            int(run[0]) if run else 0,
+            str(run[1]) if run else "missing",
+            int(run[2]) if run else 0,
+            note_count,
+            link_count,
+        )
+
+    def _graph_file_signature(self) -> GraphFileSignature:
+        stat = self.db_path.stat() if self.db_path.exists() else None
+        wal_path = Path(f"{self.db_path}-wal")
+        wal_stat = wal_path.stat() if wal_path.exists() else None
+        return (
+            stat.st_mtime_ns if stat else 0,
+            stat.st_size if stat else 0,
+            wal_stat.st_mtime_ns if wal_stat else 0,
+            wal_stat.st_size if wal_stat else 0,
+        )
+
+    def _build_graph_adjacency(self) -> GraphAdjacency:
         with closing(sqlite3.connect(self.db_path)) as conn:
             conn.row_factory = sqlite3.Row
             notes = conn.execute("SELECT note_id, path, title FROM notes").fetchall()
@@ -382,7 +447,7 @@ class RetrievalService:
             if normalized:
                 named_identities[normalized].add(str(row["note_id"]))
 
-        adjacency: dict[str, dict[str, dict[str, set[str]]]] = defaultdict(dict)
+        adjacency: GraphAdjacency = defaultdict(dict)
 
         def add_edge(source_id: str, neighbor_id: str, direction: str, link_type: str, target: str) -> None:
             relationship = adjacency[source_id].setdefault(
@@ -780,7 +845,7 @@ def estimate_tokens(text: str) -> int:
 def select_diverse_results(
     results: list[SearchResult],
     limit: int,
-    graph_adjacency: dict[str, dict[str, dict[str, set[str]]]] | None = None,
+    graph_adjacency: GraphAdjacency | None = None,
 ) -> list[SearchResult]:
     if not results or limit < 1:
         return []

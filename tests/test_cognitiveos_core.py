@@ -1254,6 +1254,124 @@ Semantic retrieval links to [[Beta]].
 
 
 class RetrievalTests(CognitiveOSTestCase):
+    def test_graph_adjacency_cache_hits_and_invalidates_after_reindex(self) -> None:
+        self.write_note(
+            "source.md",
+            """---
+id: cache_source
+type: project
+title: Cache Source
+links:
+  - first_target
+---
+# Cache Source
+""",
+        )
+        self.write_note("first.md", "---\nid: first_target\ntype: concept\ntitle: First\n---\n# First")
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        with patch.object(
+            service,
+            "_build_graph_adjacency",
+            wraps=service._build_graph_adjacency,
+        ) as build_graph:
+            first = service._graph_adjacency()
+            second = service._graph_adjacency()
+            self.assertIs(first, second)
+            self.assertEqual(build_graph.call_count, 1)
+
+            self.write_note("second.md", "---\nid: second_target\ntype: concept\ntitle: Second\n---\n# Second")
+            self.write_note(
+                "source.md",
+                """---
+id: cache_source
+type: project
+title: Cache Source
+links:
+  - second_target
+---
+# Cache Source
+""",
+            )
+            self.index()
+            rebuilt = service._graph_adjacency()
+
+        self.assertIsNot(first, rebuilt)
+        self.assertEqual(build_graph.call_count, 2)
+        self.assertIn("second_target", rebuilt["cache_source"])
+        self.assertNotIn("first_target", rebuilt["cache_source"])
+
+        other_service = RetrievalService(self.root, self.db_path)
+        other = other_service._graph_adjacency()
+        self.assertIsNot(rebuilt, other)
+        self.assertEqual(rebuilt, other)
+
+    def test_graph_cache_detects_same_size_direct_link_mutation(self) -> None:
+        self.write_note(
+            "source.md",
+            """---
+id: direct_source
+type: project
+title: Direct Source
+links:
+  - target_a
+---
+# Direct Source
+""",
+        )
+        self.write_note("a.md", "---\nid: target_a\ntype: concept\ntitle: A\n---\n# A")
+        self.write_note("b.md", "---\nid: target_b\ntype: concept\ntitle: B\n---\n# B")
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+        first = service._graph_adjacency()
+
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute(
+                "UPDATE links SET target = ? WHERE source_note_id = ?",
+                ("target_b", "direct_source"),
+            )
+            conn.commit()
+
+        second = service._graph_adjacency()
+
+        self.assertIsNot(first, second)
+        self.assertIn("target_b", second["direct_source"])
+        self.assertNotIn("target_a", second["direct_source"])
+
+    def test_graph_cache_detects_wal_link_mutation(self) -> None:
+        self.write_note(
+            "source.md",
+            """---
+id: wal_source
+type: project
+title: WAL Source
+links:
+  - wal_target_a
+---
+# WAL Source
+""",
+        )
+        self.write_note("a.md", "---\nid: wal_target_a\ntype: concept\ntitle: A\n---\n# A")
+        self.write_note("b.md", "---\nid: wal_target_b\ntype: concept\ntitle: B\n---\n# B")
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+        first = service._graph_adjacency()
+
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            self.assertEqual(conn.execute("PRAGMA journal_mode=WAL").fetchone()[0], "wal")
+            conn.execute(
+                "UPDATE links SET target = ? WHERE source_note_id = ?",
+                ("wal_target_b", "wal_source"),
+            )
+            conn.commit()
+            second = service._graph_adjacency()
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+        self.assertIsNot(first, second)
+        self.assertIn("wal_target_b", second["wal_source"])
+        self.assertNotIn("wal_target_a", second["wal_source"])
+
     def test_graph_resolution_prefers_exact_id_over_alias_collision(self) -> None:
         self.write_note(
             "exact.md",

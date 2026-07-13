@@ -991,3 +991,28 @@ Implementation checkpoint:
   unique paths, and 55 FTS rows with SQLite integrity `ok`
 - confirm a layer specification is searchable as a `system` note
 - pass 74 automated tests with `ResourceWarning` promoted to an error
+
+### v0.4 Stabilization Boundary
+
+Decision:
+
+- mark the planned read-only v0.4 feature scope as implemented and integrated
+  into `main`
+- retain package identity `0.4.0a1` until exact release-candidate verification
+  is complete
+- track v0.4 release readiness separately in `System/docs/release-v0.4.md`
+- treat the remaining validator warnings as advisory data-quality work rather
+  than release-blocking product errors
+- require clean-worktree packaging, dual-runtime regression, actual-vault
+  integrity, release notes, and explicit publication approval before `v0.4.0`
+
+Rationale:
+
+- alias retrieval, typed frontmatter edges, graph-aware ranking, graph caching,
+  note validation, layer specifications, and runtime identity are now one
+  integrated read-only feature set
+- feature completion and publication are different states; keeping them
+  separate prevents an alpha package identity from being mistaken for a stable
+  release
+- validator warnings intentionally communicate authoring guidance and do not
+  indicate parser, index, retrieval, or safety failures

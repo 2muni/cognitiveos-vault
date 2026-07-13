@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `71` unit tests
+- `75` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -358,7 +358,7 @@ Completed third implementation unit:
 
 ## Alias-aware Retrieval Development
 
-Status: Implemented on the `0.4.0a1` feature branch; integration pending.
+Status: Implemented and integrated into `main` as `0.4.0a1` development.
 
 Delivered:
 
@@ -378,8 +378,8 @@ Completed follow-up indexing unit:
   types
 - frontmatter edges included in `read_note` and existing-link suppression
 - validator information warning removed now that the fields are operational
-- aggregate actual-vault diagnostics now remain at 8 errors and 18 warnings
-  with relationship information diagnostics reduced from 3 to 0
+- aggregate actual-vault diagnostics contain 0 errors, 10 warnings, and 0
+  information items after the layer-specification contract was applied
 
 Completed graph retrieval unit:
 
@@ -405,6 +405,20 @@ Completed graph cache unit:
   generation remains unstable
 - actual-vault cache-hit benchmark reduced from about 1.78 ms to roughly
   0.03–0.05 ms per call on this device
+
+Completed layer-specification and template-identity unit:
+
+- `__SPECS__.md` files use valid `system` identities while retaining their
+  layer-specific numbered sections
+- all normal frontmatter, status, placeholder, and duplicate diagnostics remain
+  active for layer specifications
+- versioned templates receive deterministic path-derived runtime ids instead of
+  colliding on authoring placeholders
+- actual indexing now maps 55 scanner-visible files to 55 notes, 55 unique ids,
+  55 unique paths, and 55 FTS rows
+
+The canonical v0.4 feature and release gate status is maintained in
+`System/docs/release-v0.4.md`.
 
 Recommended model:
 

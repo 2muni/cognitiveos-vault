@@ -2,9 +2,9 @@
 
 ## Status
 
-- Design status: draft
-- Implementation status: core diagnostics, CLI, v0.2 templates, type-specific
-  heading guidance, and source locator checks implemented
+- Design status: accepted
+- Implementation status: complete for the v0.4 read-only scope, including the
+  CLI, v0.2 templates, aliases, relationship fields, and layer specifications
 - Scope: read-only validation and user-guided templates
 - Migration status: no migration is authorized by this design
 

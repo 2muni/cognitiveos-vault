@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import cognitiveos.cli as cognitiveos_cli
 import cognitiveos.runtime as cognitiveos_runtime
 from cognitiveos import __version__
-from cognitiveos.cli import main_embed, main_index, main_search
+from cognitiveos.cli import main_embed, main_index, main_search, main_validate
 from cognitiveos.embedding_chunks import (
     CHUNKER_VERSION,
     chunk_note,
@@ -66,6 +66,7 @@ from cognitiveos.runtime import (
 from cognitiveos.safety import safe_resolve_inside
 from cognitiveos.sentence_transformers_adapter import SentenceTransformersProvider
 from cognitiveos.sentence_transformers_adapter import APPROVED_MULTILINGUAL_MODEL_ID
+from cognitiveos.validation import VALIDATION_VERSION, validate_note_file, validate_vault
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -210,6 +211,257 @@ See [[Source Note|source]] and [example](https://example.com).
 
         self.assertEqual(note.title, "empty")
         self.assertEqual(note.body, "")
+
+
+class NoteValidationTests(CognitiveOSTestCase):
+    def test_valid_capture_report_is_deterministic_and_read_only(self) -> None:
+        path = self.write_note(
+            "00_Inbox/capture.md",
+            """---
+type: inbox
+status: inbox
+created_at: 2026-07-13
+---
+# Observed indexing question
+
+## Capture
+
+An observation.
+
+## Next
+
+- [ ] Triage this capture.
+""",
+        )
+        before = hashlib.sha256(path.read_bytes()).hexdigest()
+
+        first = validate_vault(self.root)
+        second = validate_vault(self.root)
+
+        self.assertEqual(first, second)
+        self.assertEqual(first.validation_version, VALIDATION_VERSION)
+        self.assertEqual(first.files_scanned, 1)
+        self.assertEqual(first.diagnostics, ())
+        self.assertEqual(first.exit_code, 0)
+        self.assertEqual(before, hashlib.sha256(path.read_bytes()).hexdigest())
+        self.assertFalse((self.root / ".pkm-index").exists())
+
+    def test_duplicate_ids_and_invalid_schema_values_are_errors(self) -> None:
+        self.write_note(
+            "01_Concepts/one.md",
+            """---
+id: concept_duplicate
+type: concept
+status: seed
+created_at: 2026-07-13
+---
+# Shared title
+
+PRIVATE BODY CONTENT MUST NOT APPEAR IN DIAGNOSTICS.
+""",
+        )
+        self.write_note(
+            "01_Concepts/two.md",
+            """---
+id: concept_duplicate
+type: invalid-kind
+status: finished
+tags: retrieval
+confidence: 1.2
+updated_at: July 13
+---
+# Shared title
+""",
+        )
+
+        report = validate_vault(self.root)
+        codes = [item.code for item in report.diagnostics]
+
+        self.assertEqual(codes.count("duplicate_id"), 2)
+        self.assertIn("invalid_type", codes)
+        self.assertIn("invalid_status", codes)
+        self.assertIn("invalid_field_type", codes)
+        self.assertIn("confidence_out_of_range", codes)
+        self.assertIn("invalid_date", codes)
+        self.assertEqual(report.exit_code, 1)
+        self.assertNotIn("PRIVATE BODY CONTENT", json.dumps(report.to_dict()))
+        self.assertEqual(
+            list(report.diagnostics),
+            sorted(report.diagnostics, key=lambda item: (
+                {"error": 0, "warning": 1, "info": 2}[item.severity],
+                item.path,
+                item.line or 0,
+                item.code,
+                item.field or "",
+            )),
+        )
+
+    def test_authoring_warnings_and_relationship_information(self) -> None:
+        self.write_note(
+            "00_Inbox/active.md",
+            """---
+type: inbox
+title: Frontmatter title
+status: active
+created_at: 2026-07-13
+tags:
+  - Knowledge Management
+links: [\"[[Related Note]]\"]
+sources: [\"[[Source Note]]\"]
+visibility: shared
+layer: personal
+---
+# Heading title
+""",
+        )
+
+        report = validate_vault(self.root)
+        codes = {item.code for item in report.diagnostics}
+
+        self.assertIn("lifecycle_inbox_status_mismatch", codes)
+        self.assertIn("title_heading_mismatch", codes)
+        self.assertIn("tag_domain_noncanonical", codes)
+        self.assertIn("frontmatter_relationship_not_indexed", codes)
+        self.assertIn("visibility_is_not_access_control", codes)
+        self.assertNotIn("unknown_field", codes)
+        self.assertEqual(report.exit_code, 0)
+        self.assertEqual(validate_vault(self.root, strict=True).exit_code, 1)
+
+    def test_placeholders_and_broken_frontmatter_are_reported_but_templates_are_exempt(self) -> None:
+        self.write_note(
+            "01_Concepts/placeholder.md",
+            """---
+id: concept_YYYYMMDD_slug
+type: concept
+title: Concept Title
+status: seed
+created_at: YYYY-MM-DD
+updated_at: YYYY-MM-DD
+---
+# Concept Title
+""",
+        )
+        self.write_note(
+            "broken.md",
+            """---
+title: [broken
+---
+# Broken
+""",
+        )
+        self.write_note(
+            "System/templates/v0.2/concept.md",
+            """---
+id: concept_YYYYMMDD_slug
+type: concept
+title: Concept Title
+status: seed
+created_at: YYYY-MM-DD
+updated_at: YYYY-MM-DD
+---
+# Concept Title
+""",
+        )
+        self.write_note(
+            "01_Concepts/copied-v02.md",
+            """---
+id: concept_20260713_real
+type: concept
+status: seed
+created_at: 2026-07-13
+updated_at: 2026-07-13
+visibility: private
+---
+# Concept title
+""",
+        )
+
+        report = validate_vault(self.root)
+        codes_by_path = {}
+        for item in report.diagnostics:
+            codes_by_path.setdefault(item.path, set()).add(item.code)
+
+        self.assertIn("template_placeholder_present", codes_by_path["01_Concepts/placeholder.md"])
+        self.assertIn("template_placeholder_present", codes_by_path["01_Concepts/copied-v02.md"])
+        self.assertIn("frontmatter_parse_failed", codes_by_path["broken.md"])
+        self.assertNotIn(
+            "template_placeholder_present",
+            codes_by_path.get("System/templates/v0.2/concept.md", set()),
+        )
+        self.assertNotIn(
+            "invalid_date",
+            codes_by_path.get("System/templates/v0.2/concept.md", set()),
+        )
+
+    def test_validation_rejects_paths_outside_the_vault(self) -> None:
+        outside = self.root.parent / "outside.md"
+        with self.assertRaises(ValueError):
+            validate_note_file(outside, self.root)
+        with self.assertRaisesRegex(ValueError, "scope"):
+            validate_vault(self.root, scope="private")
+
+    def test_recommended_headings_and_source_locator_are_diagnosed(self) -> None:
+        self.write_note(
+            "01_Concepts/incomplete.md",
+            """---
+id: concept_incomplete
+type: concept
+status: seed
+---
+# Incomplete concept
+
+## Definition
+
+Definition only.
+""",
+        )
+        complete_source_sections = """
+## Citation
+
+## Summary
+
+## Key Claims
+
+## Extracted Concepts
+
+## Personal Notes
+"""
+        self.write_note(
+            "04_References/missing-locator.md",
+            """---
+id: source_missing_locator
+type: source
+status: seed
+---
+# Missing locator
+""" + complete_source_sections,
+        )
+        self.write_note(
+            "04_References/with-locator.md",
+            """---
+id: source_with_locator
+type: source
+status: seed
+url: https://example.com/source
+---
+# Source with locator
+""" + complete_source_sections,
+        )
+
+        report = validate_vault(self.root)
+        codes_by_path: dict[str, list[str]] = {}
+        for item in report.diagnostics:
+            codes_by_path.setdefault(item.path, []).append(item.code)
+
+        self.assertEqual(codes_by_path["01_Concepts/incomplete.md"].count("recommended_heading_missing"), 1)
+        concept_diagnostic = next(
+            item
+            for item in report.diagnostics
+            if item.path == "01_Concepts/incomplete.md" and item.code == "recommended_heading_missing"
+        )
+        self.assertIn("Distinction, Examples, Related, Sources, Open Questions", concept_diagnostic.message)
+        self.assertIn("source_locator_missing", codes_by_path["04_References/missing-locator.md"])
+        self.assertNotIn("source_locator_missing", codes_by_path.get("04_References/with-locator.md", []))
 
 
 class SafetyTests(CognitiveOSTestCase):
@@ -1522,6 +1774,155 @@ class CLITests(CognitiveOSTestCase):
         ), redirect_stdout(search_text):
             main_search()
         self.assertIn("한글 노트", search_text.getvalue())
+
+    def test_validate_cli_supports_text_json_scope_and_strict_exit_codes(self) -> None:
+        self.write_note(
+            "00_Inbox/capture.md",
+            """---
+type: inbox
+status: inbox
+created_at: 2026-07-13
+---
+# Capture
+
+## Capture
+
+Observation.
+
+## Next
+
+- [ ] Triage.
+""",
+        )
+        text_output = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            ["cognitiveos-validate", str(self.root), "--format", "text"],
+        ), redirect_stdout(text_output):
+            exit_code = main_validate()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("note-contract-v0.2", text_output.getvalue())
+        self.assertIn("files=1 errors=0 warnings=0 info=0", text_output.getvalue())
+        self.assertFalse((self.root / ".pkm-index").exists())
+
+        self.write_note(
+            "01_Concepts/invalid.md",
+            """---
+id: duplicated
+type: invalid
+status: finished
+---
+# Invalid
+""",
+        )
+        json_output = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            ["cognitiveos-validate", str(self.root), "--format", "json"],
+        ), redirect_stdout(json_output):
+            exit_code = main_validate()
+        payload = json.loads(json_output.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["validation_version"], "note-contract-v0.2")
+        self.assertGreaterEqual(payload["summary"]["errors"], 2)
+        self.assertTrue(all(not item["path"].startswith("/") for item in payload["diagnostics"]))
+
+        warning_root = self.root / "warning-only"
+        warning_root.mkdir()
+        (warning_root / "note.md").write_text(
+            "---\ntype: inbox\nstatus: active\n---\n# Warning\n",
+            encoding="utf-8",
+        )
+        with patch.object(
+            sys,
+            "argv",
+            ["cognitiveos-validate", str(warning_root), "--strict"],
+        ), redirect_stdout(io.StringIO()):
+            self.assertEqual(main_validate(), 1)
+        with patch.object(
+            sys,
+            "argv",
+            ["cognitiveos-validate", str(warning_root), "--scope", "private"],
+        ), redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as context:
+                main_validate()
+        self.assertEqual(context.exception.code, 2)
+
+    def test_validate_cli_user_scope_excludes_system_authoring_warnings(self) -> None:
+        self.write_note(
+            "System/docs/concept.md",
+            """---
+type: concept
+status: seed
+---
+# System-scoped concept
+
+## Definition
+## Distinction
+## Examples
+## Related
+## Sources
+## Open Questions
+""",
+        )
+
+        user_output = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            ["cognitiveos-validate", str(self.root), "--scope", "user", "--format", "json"],
+        ), redirect_stdout(user_output):
+            self.assertEqual(main_validate(), 0)
+        self.assertEqual(json.loads(user_output.getvalue())["summary"]["warnings"], 0)
+
+        all_output = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            ["cognitiveos-validate", str(self.root), "--scope", "all", "--format", "json"],
+        ), redirect_stdout(all_output):
+            self.assertEqual(main_validate(), 0)
+        all_payload = json.loads(all_output.getvalue())
+        self.assertEqual(all_payload["summary"]["warnings"], 1)
+        self.assertEqual(all_payload["diagnostics"][0]["code"], "durable_id_missing")
+
+    def test_v02_templates_are_validator_compatible(self) -> None:
+        source_root = Path(__file__).resolve().parents[1] / "System" / "templates" / "v0.2"
+        template_names = sorted(path.name for path in source_root.glob("*.md"))
+        self.assertEqual(
+            template_names,
+            [
+                "concept.md",
+                "entity.md",
+                "inbox.md",
+                "journal.md",
+                "map.md",
+                "output.md",
+                "project.md",
+                "source.md",
+                "system.md",
+            ],
+        )
+        for name in template_names:
+            self.write_note(
+                f"System/templates/v0.2/{name}",
+                (source_root / name).read_text(encoding="utf-8"),
+            )
+
+        report = validate_vault(self.root, scope="all")
+
+        self.assertEqual(report.error_count, 0)
+        self.assertEqual(report.warning_count, 0)
+        self.assertEqual(report.info_count, 0)
+        pyproject = tomllib.loads(
+            (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            pyproject["project"]["scripts"]["cognitiveos-validate"],
+            "cognitiveos.cli:main_validate",
+        )
 
 
 if __name__ == "__main__":

@@ -55,6 +55,7 @@ src/cognitiveos/                    Python implementation
 tests/                              Unit and fixture tests
 System/docs/                        Architecture, schemas, decisions, roadmap
 System/templates/v0.1/              Canonical note templates
+System/templates/v0.2/              Capture and durable note templates
 .pkm-index/                         Generated local index, Git-ignored
 ```
 
@@ -137,9 +138,28 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 53 tests
+Ran 62 tests
 OK
 ```
+
+## Validate Notes
+
+The development tree provides a read-only note contract validator:
+
+```bash
+PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_validate; raise SystemExit(main_validate())" . --format text
+```
+
+JSON and strict validation are explicit:
+
+```bash
+PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_validate; raise SystemExit(main_validate())" . --scope user --strict --format json
+```
+
+The validator does not create an index or modify Markdown. The public v0.3.0
+wheel predates this development command; `cognitiveos-validate` is available
+from the current source tree and future packages that include the new entry
+point.
 
 ## Build the Local Index
 
@@ -302,6 +322,17 @@ System/docs/release-v0.3.md
 ```
 
 It also defines the hotfix flow and version bump procedure.
+
+The draft v0.2 note authoring and read-only validation contract is maintained
+in:
+
+```text
+System/docs/note-contract-v0.2.md
+```
+
+It defines capture and durable authoring profiles plus the proposed
+`cognitiveos-validate` diagnostic contract. It does not authorize note
+migration or writeback.
 
 The v0.1.0 release notes are maintained in:
 

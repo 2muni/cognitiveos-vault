@@ -749,3 +749,72 @@ Decision:
 - exclude `.venv*`, `.pkm-index`, and `dist` from every Hatch build target
 - require the final sdist build to pass while both default and embedding virtual
   environments are present
+
+### Note Contract and Read-only Validation v0.2 Design
+
+Finding:
+
+- the existing nine note types remain sufficient for the current vault
+- all v0.1 templates require thirteen common fields, while several fields are
+  stored but not consumed by search, backlink, or permission behavior
+- body links are indexed as relationships, but frontmatter `links` and
+  `sources` are not graph edges
+- actual user-note metadata shows lifecycle ambiguity between `type: inbox`
+  and `status: active`
+- no read-only validator currently detects duplicate ids, enum errors,
+  placeholder values, invalid field types, or unusual lifecycle combinations
+
+Decision:
+
+- retain the v0.1 note type vocabulary
+- define separate capture and durable authoring profiles
+- keep body wikilinks and Markdown links as the current canonical relationship
+  representation
+- design `cognitiveos-validate` as a deterministic read-only command with text
+  and JSON output
+- treat duplicate ids and invalid schema values as errors while introducing
+  lifecycle and authoring-profile checks as warnings
+- preserve v0.1 templates and add future v0.2 templates separately
+- prohibit automatic note edits or migrations under this design
+
+Documented in:
+
+- `System/docs/note-contract-v0.2.md`
+
+Implementation checkpoint:
+
+- add `src/cognitiveos/validation.py` with immutable diagnostics and reports
+- keep validation independent from SQLite and all writeback paths
+- expose pure `validate_note_file` and `validate_vault` APIs
+- cover deterministic ordering, strict exit behavior, path safety, private body
+  non-disclosure, and no-write behavior
+- identify eight existing user-scope noncanonical note types that the current
+  parser silently treats as inbox; do not modify those notes automatically
+- pass 58 total tests after the first validator unit
+
+Second implementation checkpoint:
+
+- add `cognitiveos-validate` with deterministic text and JSON output
+- implement `--scope user|all`, `--strict`, and stable exit codes
+- add nine templates under `System/templates/v0.2/` while preserving v0.1
+- omit empty optional metadata arrays from v0.2 templates
+- keep the first H1 as the default human-readable title
+- confirm all v0.2 templates pass validation, including placeholder exemptions
+- retain the immutable public v0.3.0 wheel as a five-entry-point artifact and
+  describe the validator as development-tree functionality until a future
+  package release
+- pass 61 total tests after the CLI and template unit
+
+Third implementation checkpoint:
+
+- add type-specific recommended section checks for all nine note types
+- aggregate all missing sections into one warning per note after the initial
+  actual-vault run produced excessive repeated diagnostics
+- add source locator detection for URL, DOI, locator metadata, and body text
+- exempt canonical templates from authoring-completeness warnings while still
+  validating their schema
+- run the validator against 55 scanner-visible Markdown files without exposing
+  paths or body text
+- record 8 existing type errors, 18 warnings, and 3 information diagnostics
+- preserve Markdown checksums and the existing lexical index modification time
+- pass 62 total tests

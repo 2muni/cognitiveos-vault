@@ -225,7 +225,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `53` unit tests
+- `62` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -307,6 +307,55 @@ Release policy:
 - `System/docs/release-v0.1.md`
 - current release-candidate package version: `0.3.0`
 - latest published stable tag and GitHub Release: `v0.3.0`
+
+## Next Read-only Quality Phase
+
+Phase 8: note contract validation and lower-friction authoring.
+
+Status: Design, validator core, CLI, v0.2 templates, type-specific heading
+guidance, source locator checks, and aggregate actual-vault audit complete.
+
+Planned scope:
+
+- deterministic, read-only `cognitiveos-validate`
+- duplicate id and invalid frontmatter diagnostics
+- lifecycle consistency warnings
+- separate capture and durable authoring profiles
+- new `System/templates/v0.2/` templates without changing v0.1 templates
+- aggregate actual-vault validation without exposing private note content
+
+The contract, diagnostic schema, compatibility boundary, and rollout order are
+defined in `System/docs/note-contract-v0.2.md`.
+
+Completed first implementation unit:
+
+- immutable diagnostic and report data structures
+- deterministic validation ordering and strict-mode exit semantics
+- duplicate id, enum, field type, date, confidence, and placeholder errors
+- lifecycle, title, durable-id, and tag/domain warnings
+- relationship and visibility information diagnostics
+- user/all scope behavior and vault-root safety
+- no index creation or Markdown mutation
+
+Completed second implementation unit:
+
+- `cognitiveos-validate` package entry point
+- deterministic `text|json` output
+- `--scope user|all` and `--strict`
+- stable exit codes for clean, validation, and invocation outcomes
+- nine validator-compatible templates under `System/templates/v0.2/`
+- capture and durable profiles without empty optional metadata arrays
+- explicit documentation that the public v0.3.0 wheel predates the validator
+  entry point
+
+Completed third implementation unit:
+
+- type-specific recommended heading diagnostics
+- one aggregated missing-heading warning per note to limit diagnostic noise
+- source URL, DOI, locator metadata, and body locator recognition
+- source locator warnings without returning locator values or note content
+- canonical template exemption from authoring-completeness diagnostics
+- aggregate actual-vault audit: 8 errors, 18 warnings, and 3 information items
 
 Recommended model:
 

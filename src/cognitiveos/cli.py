@@ -12,6 +12,7 @@ from .embedding_index import SemanticUnavailableError
 from .retrieval import RetrievalService, search_result_to_dict
 from .sentence_transformers_adapter import create_sentence_transformers_provider
 from .runtime import build_runtime_service
+from .validation import ValidationDiagnostic, ValidationReport, validate_vault
 
 
 EmbeddingProviderFactory = Callable[[str, str, bool, str], EmbeddingProvider]
@@ -66,6 +67,53 @@ def main_search() -> None:
     else:
         for result in results:
             print(f"{result.score:.6f}\t{result.title}\t{result.path}\t{result.matched_excerpt}")
+
+
+def main_validate() -> int:
+    parser = argparse.ArgumentParser(description="Validate a CognitiveOS Markdown vault without modifying it")
+    parser.add_argument("vault_root", nargs="?", default=".", help="Vault root path")
+    parser.add_argument(
+        "--scope",
+        choices=("all", "user"),
+        default="user",
+        help="Apply authoring warnings to user notes only or all notes",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Return exit code 1 when warnings are present",
+    )
+    parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    args = parser.parse_args()
+    try:
+        report = validate_vault(args.vault_root, scope=args.scope, strict=args.strict)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+    output_validation_report(report, args.format)
+    return report.exit_code
+
+
+def output_validation_report(report: ValidationReport, output_format: str) -> None:
+    if output_format == "json":
+        print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+        return
+    print(f"CognitiveOS note validation {report.validation_version}")
+    print(
+        f"scope={report.scope} strict={str(report.strict).lower()} "
+        f"files={report.files_scanned} errors={report.error_count} "
+        f"warnings={report.warning_count} info={report.info_count}"
+    )
+    for item in report.diagnostics:
+        print(format_validation_diagnostic(item))
+
+
+def format_validation_diagnostic(item: ValidationDiagnostic) -> str:
+    location = item.path
+    if item.line is not None:
+        location = f"{location}:{item.line}"
+    field = f" field={item.field}" if item.field else ""
+    related = f" related={','.join(item.related_paths)}" if item.related_paths else ""
+    return f"[{item.severity.upper()}] {location} {item.code}{field}: {item.message}{related}"
 
 
 def main_embed() -> None:

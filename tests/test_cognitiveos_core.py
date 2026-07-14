@@ -1299,6 +1299,7 @@ class IndexTests(CognitiveOSTestCase):
             result = index.build_vault(self.root)
 
         self.assertEqual(result.mode, "full")
+        self.assertTrue(result.published)
         self.assertEqual(result.scanned_count, 2)
         self.assertEqual(result.added_count, 2)
         self.assertEqual(result.updated_count, 0)
@@ -1395,6 +1396,210 @@ class IndexTests(CognitiveOSTestCase):
 
         self.assertEqual(self.db_path.read_bytes(), original_database)
         self.assertFalse(self.db_path.with_name(f".{self.db_path.name}.tmp").exists())
+
+    def test_incremental_noop_reparses_nothing_and_preserves_generation(self) -> None:
+        self.write_note("source.md", "# Source\n\nLinks to [[Target]].")
+        self.write_note("target.md", "# Target\n\nEvidence")
+        with VaultIndex(self.db_path) as index:
+            full = index.build_vault(self.root, mode="full")
+        service = RetrievalService(self.root, self.db_path)
+        graph = service._graph_adjacency()
+        original_bytes = self.db_path.read_bytes()
+        original_stat = self.db_path.stat()
+
+        with patch("cognitiveos.indexer.parse_markdown_file") as parse_note:
+            with VaultIndex(self.db_path) as index:
+                result = index.build_vault(self.root, mode="incremental")
+
+        self.assertEqual(parse_note.call_count, 0)
+        self.assertFalse(result.published)
+        self.assertEqual(result.generation, full.generation)
+        self.assertEqual(result.scanned_count, 2)
+        self.assertEqual(result.added_count, 0)
+        self.assertEqual(result.updated_count, 0)
+        self.assertEqual(result.removed_count, 0)
+        self.assertEqual(result.reused_count, 2)
+        self.assertEqual(self.db_path.read_bytes(), original_bytes)
+        self.assertEqual(self.db_path.stat().st_mtime_ns, original_stat.st_mtime_ns)
+        self.assertIs(service._graph_adjacency(), graph)
+
+    def test_incremental_build_updates_only_changed_paths_and_invalidates_graph(self) -> None:
+        self.write_note(
+            "source.md",
+            "---\nid: source\ntype: project\nlinks: [old_target]\n---\n# Source\n\nOld evidence",
+        )
+        self.write_note("old.md", "---\nid: old_target\n---\n# Old Target")
+        self.write_note("keep.md", "# Keep\n\nUnchanged")
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+        old_graph = service._graph_adjacency()
+
+        self.write_note(
+            "source.md",
+            "---\nid: source\ntype: project\naliases:\n  - Source Alias\nlinks:\n  - new_target\n---\n# Updated Source\n\nNew searchable evidence",
+        )
+        (self.root / "old.md").unlink()
+        self.write_note("new.md", "---\nid: new_target\n---\n# New Target\n\nAdded evidence")
+        original_parser = parse_markdown_file
+        with patch(
+            "cognitiveos.indexer.parse_markdown_file",
+            wraps=original_parser,
+        ) as parse_note:
+            with VaultIndex(self.db_path) as index:
+                result = index.build_vault(self.root, mode="incremental")
+
+        self.assertTrue(result.published)
+        self.assertEqual(parse_note.call_count, 2)
+        self.assertEqual(result.scanned_count, 3)
+        self.assertEqual(result.added_count, 1)
+        self.assertEqual(result.updated_count, 1)
+        self.assertEqual(result.removed_count, 1)
+        self.assertEqual(result.reused_count, 1)
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            self.assertEqual(
+                [row[0] for row in conn.execute("SELECT path FROM notes ORDER BY path")],
+                ["keep.md", "new.md", "source.md"],
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT value FROM note_frontmatter WHERE note_id = 'source' AND key = 'aliases'"
+                ).fetchone()[0],
+                "Source Alias",
+            )
+            self.assertEqual(
+                conn.execute("SELECT target FROM links WHERE source_note_id = 'source'").fetchone()[0],
+                "new_target",
+            )
+            self.assertEqual(
+                conn.execute("SELECT text FROM headings WHERE note_id = 'source'").fetchone()[0],
+                "Updated Source",
+            )
+            self.assertIn(
+                "New searchable evidence",
+                conn.execute("SELECT body FROM fts_notes WHERE note_id = 'source'").fetchone()[0],
+            )
+            self.assertEqual(
+                conn.execute("SELECT COUNT(*) FROM notes WHERE note_id = 'old_target'").fetchone()[0],
+                0,
+            )
+            run = conn.execute("SELECT * FROM index_runs ORDER BY run_id DESC LIMIT 1").fetchone()
+            self.assertEqual(run["mode"], "incremental")
+            self.assertEqual(run["generation"], result.generation)
+        new_graph = service._graph_adjacency()
+        self.assertIsNot(new_graph, old_graph)
+        self.assertIn("new_target", new_graph["source"])
+        self.assertNotIn("old_target", new_graph["source"])
+
+    def test_incremental_and_clean_full_builds_are_observably_equivalent(self) -> None:
+        incremental_db = self.root / ".pkm-index" / "incremental.sqlite3"
+        full_db = self.root / ".pkm-index" / "full.sqlite3"
+        self.write_note("keep.md", "# Keep\n\nStable")
+        self.write_note("change.md", "# Before\n\nOld body")
+        self.write_note("remove.md", "# Remove")
+        with VaultIndex(incremental_db) as index:
+            index.build_vault(self.root, mode="full")
+
+        self.write_note(
+            "change.md",
+            "---\nid: changed\naliases: [Changed Alias]\nlinks: [added]\n---\n# After\n\nNew body",
+        )
+        (self.root / "remove.md").unlink()
+        self.write_note("added.md", "---\nid: added\n---\n# Added\n\nFresh body")
+        with VaultIndex(incremental_db) as index:
+            index.build_vault(self.root, mode="incremental")
+        with VaultIndex(full_db) as index:
+            index.build_vault(self.root, mode="full")
+
+        queries = (
+            "SELECT * FROM notes ORDER BY path",
+            "SELECT * FROM note_frontmatter ORDER BY note_id, key, value",
+            "SELECT * FROM links ORDER BY source_note_id, target, link_type, line",
+            "SELECT * FROM headings ORDER BY note_id, level, text, line",
+            "SELECT note_id, title, body, headings, path FROM fts_notes ORDER BY path",
+        )
+        with closing(sqlite3.connect(incremental_db)) as incremental_conn, closing(
+            sqlite3.connect(full_db)
+        ) as full_conn:
+            for query in queries:
+                self.assertEqual(incremental_conn.execute(query).fetchall(), full_conn.execute(query).fetchall())
+
+    def test_incremental_failures_preserve_the_active_database(self) -> None:
+        note = self.write_note("note.md", "# Note\n\nInitial")
+        self.index()
+        original = self.db_path.read_bytes()
+        note.write_text("# Note\n\nChanged", encoding="utf-8")
+
+        from cognitiveos.indexer import validate_lexical_index as original_validate
+
+        validation_calls = 0
+
+        def fail_publication_validation(conn: sqlite3.Connection, manifest: object) -> None:
+            nonlocal validation_calls
+            validation_calls += 1
+            if validation_calls == 2:
+                raise ValueError("injected incremental validation failure")
+            original_validate(conn, manifest)  # type: ignore[arg-type]
+
+        with patch(
+            "cognitiveos.indexer.validate_lexical_index",
+            side_effect=fail_publication_validation,
+        ):
+            with self.assertRaisesRegex(ValueError, "incremental validation failure"):
+                with VaultIndex(self.db_path) as index:
+                    index.build_vault(self.root, mode="incremental")
+
+        self.assertEqual(self.db_path.read_bytes(), original)
+        self.assertFalse(self.db_path.with_name(f".{self.db_path.name}.tmp").exists())
+
+    def test_incremental_source_race_preserves_the_active_database(self) -> None:
+        note = self.write_note("note.md", "# Note\n\nInitial")
+        self.index()
+        original = self.db_path.read_bytes()
+        note.write_text("# Note\n\nReady for incremental", encoding="utf-8")
+        original_parser = parse_markdown_file
+
+        def parse_then_change(path: str | Path, root: str | Path):
+            parsed = original_parser(path, root)
+            note.write_text("# Note\n\nChanged during incremental build", encoding="utf-8")
+            return parsed
+
+        with patch("cognitiveos.indexer.parse_markdown_file", side_effect=parse_then_change):
+            with self.assertRaisesRegex(RuntimeError, "source set changed"):
+                with VaultIndex(self.db_path) as index:
+                    index.build_vault(self.root, mode="incremental")
+
+        self.assertEqual(self.db_path.read_bytes(), original)
+        self.assertFalse(self.db_path.with_name(f".{self.db_path.name}.tmp").exists())
+
+    def test_active_rollback_journal_blocks_incremental_publication(self) -> None:
+        note = self.write_note("note.md", "# Note\n\nInitial")
+        self.index()
+        original = self.db_path.read_bytes()
+        note.write_text("# Note\n\nChanged", encoding="utf-8")
+        Path(f"{self.db_path}-journal").write_bytes(b"active-journal")
+
+        with self.assertRaisesRegex(RuntimeError, "active rollback journal"):
+            with VaultIndex(self.db_path) as index:
+                index.build_vault(self.root, mode="incremental")
+
+        self.assertEqual(self.db_path.read_bytes(), original)
+        self.assertFalse(self.db_path.with_name(f".{self.db_path.name}.tmp").exists())
+
+    def test_incremental_mode_requires_a_compatible_completed_baseline(self) -> None:
+        self.write_note("note.md", "# Note")
+        with self.assertRaisesRegex(ValueError, "run --mode full"):
+            with VaultIndex(self.db_path) as index:
+                index.build_vault(self.root, mode="incremental")
+        self.assertFalse(self.db_path.exists())
+
+        self.index()
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute("UPDATE index_runs SET manifest_digest = 'incompatible'")
+            conn.commit()
+        with self.assertRaisesRegex(ValueError, "run --mode full"):
+            with VaultIndex(self.db_path) as index:
+                index.build_vault(self.root, mode="incremental")
 
     def test_skips_local_runtime_directories(self) -> None:
         self.write_note("note.md", "# Durable note")
@@ -2429,6 +2634,7 @@ class CLITests(CognitiveOSTestCase):
         self.assertEqual(index_payload["indexed_notes"], 1)
         self.assertEqual(index_payload["index_path"], str(self.db_path))
         self.assertEqual(index_payload["mode"], "full")
+        self.assertTrue(index_payload["published"])
         self.assertEqual(index_payload["manifest_version"], MANIFEST_VERSION)
         self.assertEqual(index_payload["scanned_count"], 1)
         self.assertEqual(index_payload["added_count"], 1)
@@ -2441,6 +2647,27 @@ class CLITests(CognitiveOSTestCase):
         ), redirect_stdout(text_output):
             main_index()
         self.assertIn("Indexed 1 notes", text_output.getvalue())
+
+        incremental_json = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cognitiveos-index",
+                str(self.root),
+                "--db",
+                str(self.db_path),
+                "--mode",
+                "incremental",
+                "--format",
+                "json",
+            ],
+        ), redirect_stdout(incremental_json):
+            main_index()
+        incremental_payload = json.loads(incremental_json.getvalue())
+        self.assertEqual(incremental_payload["mode"], "incremental")
+        self.assertFalse(incremental_payload["published"])
+        self.assertEqual(incremental_payload["reused_count"], 1)
 
         search_json = io.StringIO()
         with patch.object(

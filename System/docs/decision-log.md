@@ -1140,3 +1140,39 @@ Implementation checkpoint:
 - publication is rejected instead of replacing an index with an active,
   non-empty WAL sidecar
 - all 85 automated tests pass with `ResourceWarning` promoted to an error
+
+### v0.5 Incremental Lexical Publication
+
+Decision:
+
+- require an internally healthy, completed v0.5 lexical database before an
+  explicit incremental build; missing or incompatible baselines require full
+  rebuild rather than an implicit mode change
+- classify source paths by checksum and parse only added or updated notes while
+  reusing unchanged rows and deleting removed paths from all derived tables
+- copy the active database to a temporary sibling, validate the complete
+  manifest and FTS coverage, then atomically publish a new generation
+- treat an unchanged manifest as a true no-op: no parser calls, no run row, no
+  file publication, and no graph-cache invalidation
+- expose `published` in `LexicalBuildResult` so automation can distinguish a
+  changed incremental publication from a no-op
+
+Rationale:
+
+- explicit baseline compatibility prevents silently trusting legacy or corrupt
+  derived state
+- path/checksum classification is deterministic and keeps Markdown as the only
+  authority while avoiding unnecessary parser work
+- preserving the active database byte-for-byte on parser, validation, source
+  race, SQLite sidecar, or replacement failure retains the Unit 2 safety model
+- not touching the database on a no-op keeps service-local graph caches stable
+
+Implementation checkpoint:
+
+- added, updated, removed, and reused counts are persisted for changed builds
+- full and incremental final databases are observably equivalent outside build
+  history metadata
+- no-op incremental runs reparse zero notes and preserve generation and bytes
+- changed incremental runs invalidate graph adjacency caches after publication
+- active WAL and rollback-journal sidecars block publication
+- all 92 automated tests pass with `ResourceWarning` promoted to an error

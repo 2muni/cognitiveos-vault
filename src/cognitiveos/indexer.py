@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sqlite3
 import uuid
 from dataclasses import asdict, dataclass
@@ -29,6 +30,7 @@ def default_index_path(vault_root: str | Path) -> Path:
 class LexicalBuildResult:
     index_path: str
     mode: str
+    published: bool
     generation: str
     manifest_version: str
     manifest_digest: str
@@ -221,10 +223,14 @@ class VaultIndex:
         conn.execute("DELETE FROM fts_notes WHERE note_id = ?", (note_id,))
 
     def build_vault(self, vault_root: str | Path, *, mode: str = "full") -> LexicalBuildResult:
-        if mode != "full":
-            raise ValueError("index mode must be full until incremental publication is implemented")
+        if mode not in {"full", "incremental"}:
+            raise ValueError("index mode must be full or incremental")
         self.close()
-        result = build_full_index(vault_root, self.db_path)
+        result = (
+            build_full_index(vault_root, self.db_path)
+            if mode == "full"
+            else build_incremental_index(vault_root, self.db_path)
+        )
         self.last_build_result = result
         return result
 
@@ -288,12 +294,16 @@ def build_full_index(vault_root: str | Path, db_path: str | Path) -> LexicalBuil
             )
             conn.commit()
             validate_lexical_index(conn, final_source_manifest)
+        publication_manifest = build_vault_manifest(root)
+        if publication_manifest.digest != source_manifest.digest:
+            raise RuntimeError("Markdown source set changed before lexical index publication")
         fsync_file(temp_path)
-        reject_active_wal(target)
+        reject_active_database_sidecars(target)
         os.replace(temp_path, target)
         return LexicalBuildResult(
             index_path=str(target),
             mode="full",
+            published=True,
             generation=generation,
             manifest_version=source_manifest.manifest_version,
             manifest_digest=source_manifest.digest,
@@ -307,6 +317,169 @@ def build_full_index(vault_root: str | Path, db_path: str | Path) -> LexicalBuil
         )
     finally:
         cleanup_sqlite_files(temp_path)
+
+
+def build_incremental_index(vault_root: str | Path, db_path: str | Path) -> LexicalBuildResult:
+    root = resolve_vault_root(vault_root)
+    target = Path(db_path)
+    baseline = load_incremental_baseline(target)
+    source_manifest = build_vault_manifest(root)
+    previous = {record.path: record.checksum for record in baseline.manifest.records}
+    current = {record.path: record.checksum for record in source_manifest.records}
+    previous_paths = set(previous)
+    current_paths = set(current)
+    added_paths = sorted(current_paths - previous_paths)
+    removed_paths = sorted(previous_paths - current_paths)
+    updated_paths = sorted(
+        path for path in current_paths & previous_paths if current[path] != previous[path]
+    )
+    reused_paths = sorted(
+        path for path in current_paths & previous_paths if current[path] == previous[path]
+    )
+    if not added_paths and not removed_paths and not updated_paths:
+        return LexicalBuildResult(
+            index_path=str(target),
+            mode="incremental",
+            published=False,
+            generation=baseline.generation,
+            manifest_version=source_manifest.manifest_version,
+            manifest_digest=source_manifest.digest,
+            scanned_count=source_manifest.markdown_count,
+            added_count=0,
+            updated_count=0,
+            removed_count=0,
+            reused_count=len(reused_paths),
+            note_count=source_manifest.markdown_count,
+            fts_count=baseline.fts_count,
+        )
+
+    generation = uuid.uuid4().hex
+    temp_path = target.with_name(f".{target.name}.tmp")
+    cleanup_sqlite_files(temp_path)
+    started_at = now_iso()
+    changed_paths = sorted((*added_paths, *updated_paths))
+    parsed_notes: list[NoteDocument] = []
+    try:
+        reject_active_database_sidecars(target)
+        shutil.copy2(target, temp_path)
+        with VaultIndex(temp_path) as index:
+            index.create_schema()
+            conn = index._connection()
+            cursor = conn.execute(
+                """
+                INSERT INTO index_runs (
+                    started_at, status, mode, generation, manifest_version,
+                    manifest_digest, scanned_count, added_count, updated_count,
+                    removed_count, reused_count
+                ) VALUES (?, 'running', 'incremental', ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    started_at,
+                    generation,
+                    source_manifest.manifest_version,
+                    source_manifest.digest,
+                    source_manifest.markdown_count,
+                    len(added_paths),
+                    len(updated_paths),
+                    len(removed_paths),
+                    len(reused_paths),
+                ),
+            )
+            run_id = int(cursor.lastrowid)
+            conn.commit()
+            with conn:
+                for path in removed_paths:
+                    row = conn.execute("SELECT note_id FROM notes WHERE path = ?", (path,)).fetchone()
+                    if row is None:
+                        raise ValueError("incremental baseline is missing an indexed note")
+                    index.delete_note(str(row[0]))
+            for path in changed_paths:
+                note = parse_markdown_file(root / path, root)
+                parsed_notes.append(note)
+                index.upsert_note(note)
+            parsed = {note.path: note.checksum for note in parsed_notes}
+            if parsed != {path: current[path] for path in changed_paths}:
+                raise RuntimeError("Markdown changed while the incremental index was being built")
+            final_source_manifest = build_vault_manifest(root)
+            if final_source_manifest.digest != source_manifest.digest:
+                raise RuntimeError("Markdown source set changed before lexical index publication")
+            note_count = int(conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0])
+            fts_count = int(conn.execute("SELECT COUNT(*) FROM fts_notes").fetchone()[0])
+            conn.execute(
+                """
+                UPDATE index_runs
+                SET completed_at = ?, note_count = ?, fts_count = ?, status = 'completed'
+                WHERE run_id = ?
+                """,
+                (now_iso(), note_count, fts_count, run_id),
+            )
+            conn.commit()
+            validate_lexical_index(conn, final_source_manifest)
+        publication_manifest = build_vault_manifest(root)
+        if publication_manifest.digest != source_manifest.digest:
+            raise RuntimeError("Markdown source set changed before lexical index publication")
+        fsync_file(temp_path)
+        reject_active_database_sidecars(target)
+        os.replace(temp_path, target)
+        return LexicalBuildResult(
+            index_path=str(target),
+            mode="incremental",
+            published=True,
+            generation=generation,
+            manifest_version=source_manifest.manifest_version,
+            manifest_digest=source_manifest.digest,
+            scanned_count=source_manifest.markdown_count,
+            added_count=len(added_paths),
+            updated_count=len(updated_paths),
+            removed_count=len(removed_paths),
+            reused_count=len(reused_paths),
+            note_count=source_manifest.markdown_count,
+            fts_count=source_manifest.markdown_count,
+        )
+    finally:
+        cleanup_sqlite_files(temp_path)
+
+
+@dataclass(frozen=True)
+class IncrementalBaseline:
+    manifest: VaultManifest
+    generation: str
+    fts_count: int
+
+
+def load_incremental_baseline(db_path: str | Path) -> IncrementalBaseline:
+    path = Path(db_path)
+    if not path.is_file():
+        raise ValueError(
+            "incremental mode requires a compatible completed lexical index; run --mode full"
+        )
+    try:
+        reject_active_database_sidecars(path)
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute("SELECT path, checksum FROM notes ORDER BY path").fetchall()
+            manifest = manifest_from_records(
+                ManifestRecord(path=str(row["path"]), checksum=str(row["checksum"]))
+                for row in rows
+            )
+            validate_lexical_index(conn, manifest)
+            run = conn.execute(
+                "SELECT generation, fts_count FROM index_runs ORDER BY run_id DESC LIMIT 1"
+            ).fetchone()
+            if run is None or not str(run["generation"]):
+                raise ValueError("lexical index generation is missing")
+            return IncrementalBaseline(
+                manifest=manifest,
+                generation=str(run["generation"]),
+                fts_count=int(run["fts_count"]),
+            )
+        finally:
+            conn.close()
+    except (OSError, sqlite3.DatabaseError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "incremental mode requires a compatible completed lexical index; run --mode full"
+        ) from exc
 
 
 def validate_lexical_index(conn: sqlite3.Connection, expected_manifest: VaultManifest) -> None:
@@ -325,22 +498,38 @@ def validate_lexical_index(conn: sqlite3.Connection, expected_manifest: VaultMan
         FROM index_runs ORDER BY run_id DESC LIMIT 1
         """
     ).fetchone()
-    if run is None or run["status"] != "completed" or run["mode"] != "full":
-        raise ValueError("lexical index has no completed full build")
+    if run is None or run["status"] != "completed" or run["mode"] not in {"full", "incremental"}:
+        raise ValueError("lexical index has no compatible completed build")
     note_rows = conn.execute("SELECT path, checksum FROM notes ORDER BY path").fetchall()
     note_count = len(note_rows)
     fts_count = int(conn.execute("SELECT COUNT(*) FROM fts_notes").fetchone()[0])
-    if (
+    common_counts_invalid = (
         note_count != expected_manifest.markdown_count
         or fts_count != note_count
         or int(run["scanned_count"]) != note_count
-        or int(run["added_count"]) != note_count
+        or int(run["note_count"]) != note_count
+        or int(run["fts_count"]) != fts_count
+    )
+    full_counts_invalid = run["mode"] == "full" and (
+        int(run["added_count"]) != note_count
         or int(run["updated_count"]) != 0
         or int(run["removed_count"]) != 0
         or int(run["reused_count"]) != 0
-        or int(run["note_count"]) != note_count
-        or int(run["fts_count"]) != fts_count
-    ):
+    )
+    incremental_counts_invalid = run["mode"] == "incremental" and (
+        int(run["added_count"])
+        + int(run["updated_count"])
+        + int(run["reused_count"])
+        != note_count
+        or min(
+            int(run["added_count"]),
+            int(run["updated_count"]),
+            int(run["removed_count"]),
+            int(run["reused_count"]),
+        )
+        < 0
+    )
+    if common_counts_invalid or full_counts_invalid or incremental_counts_invalid:
         raise ValueError("lexical index count validation failed")
     missing_fts = conn.execute(
         "SELECT note_id, path FROM notes EXCEPT SELECT note_id, path FROM fts_notes"
@@ -390,6 +579,13 @@ def reject_active_wal(path: Path) -> None:
     wal_path = Path(f"{path}-wal")
     if wal_path.exists() and wal_path.stat().st_size > 0:
         raise RuntimeError("cannot publish lexical index while an active WAL file exists")
+
+
+def reject_active_database_sidecars(path: Path) -> None:
+    reject_active_wal(path)
+    journal_path = Path(f"{path}-journal")
+    if journal_path.exists() and journal_path.stat().st_size > 0:
+        raise RuntimeError("cannot publish lexical index while an active rollback journal exists")
 
 
 def cleanup_sqlite_files(path: Path) -> None:

@@ -111,7 +111,7 @@ Older disposable databases may lack the extended columns. `create_schema`
 adds them with compatibility defaults, while a successful atomic full rebuild
 publishes complete metadata.
 
-## Atomic Full Publication
+## Atomic Full and Incremental Publication
 
 A full build never clears the active database in place. It creates a sibling
 temporary SQLite database, parses every scanner-visible Markdown file, records
@@ -127,8 +127,19 @@ Only a validated database is published with an atomic filesystem replacement.
 Parser, validation, source-race, or replacement failures remove the temporary
 database and leave the prior active database byte-for-byte unchanged.
 Publication is also rejected while the active database has a non-empty WAL
-file; callers must close the writer and allow SQLite to checkpoint before
-retrying.
+or rollback-journal file; callers must close the writer and allow SQLite to
+finish or checkpoint before retrying.
+
+Incremental publication requires a compatible completed database with matching
+manifest metadata and internally consistent note/FTS coverage. The builder
+compares its stored path/checksum manifest with the current source manifest,
+copies the baseline to a sibling temporary database, parses only added or
+changed paths, deletes removed paths, and validates the complete derived state
+before replacement. Unchanged rows are reused as-is.
+
+`LexicalBuildResult.published` distinguishes a changed publication from a
+no-op. A no-op incremental run parses no Markdown, appends no `index_runs` row,
+and does not modify the active database or generation.
 
 ## Reindex Rule
 

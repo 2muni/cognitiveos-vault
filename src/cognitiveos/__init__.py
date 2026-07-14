@@ -34,7 +34,7 @@ from .embedding_index import (
     search_embedding_index,
     unpack_vector,
 )
-from .indexer import LexicalBuildResult, build_full_index
+from .indexer import LexicalBuildResult, build_full_index, build_incremental_index
 from .sentence_transformers_adapter import SentenceTransformersProvider
 from .validation import (
     VALIDATION_VERSION,
@@ -94,6 +94,7 @@ __all__ = [
     "validate_vault",
     "build_vault_manifest",
     "build_full_index",
+    "build_incremental_index",
     "inspect_vault_status",
     "manifest_from_records",
 ]

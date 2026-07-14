@@ -1,5 +1,7 @@
 """CognitiveOS read-only PKM index and retrieval core."""
 
+__version__ = "0.5.0a1"
+
 from .embeddings import (
     EmbeddingConfigurationError,
     EmbeddingError,
@@ -32,6 +34,7 @@ from .embedding_index import (
     search_embedding_index,
     unpack_vector,
 )
+from .indexer import LexicalBuildResult, build_full_index
 from .sentence_transformers_adapter import SentenceTransformersProvider
 from .validation import (
     VALIDATION_VERSION,
@@ -40,6 +43,14 @@ from .validation import (
     validate_note_file,
     validate_vault,
 )
+from .manifest import (
+    MANIFEST_VERSION,
+    ManifestRecord,
+    VaultManifest,
+    build_vault_manifest,
+    manifest_from_records,
+)
+from .status import STATUS_VERSION, VaultStatus, inspect_vault_status
 
 __all__ = [
     "EmbeddingConfigurationError",
@@ -59,6 +70,12 @@ __all__ = [
     "DEFAULT_MAX_CHARS",
     "DEFAULT_OVERLAP_CHARS",
     "VALIDATION_VERSION",
+    "MANIFEST_VERSION",
+    "STATUS_VERSION",
+    "ManifestRecord",
+    "LexicalBuildResult",
+    "VaultManifest",
+    "VaultStatus",
     "ValidationDiagnostic",
     "ValidationReport",
     "__version__",
@@ -75,6 +92,8 @@ __all__ = [
     "unpack_vector",
     "validate_note_file",
     "validate_vault",
+    "build_vault_manifest",
+    "build_full_index",
+    "inspect_vault_status",
+    "manifest_from_records",
 ]
-
-__version__ = "0.4.0"

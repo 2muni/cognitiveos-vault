@@ -83,7 +83,52 @@ full lexical index rebuild refreshes existing rows after an alias changes.
 
 ### `index_runs`
 
-Records index rebuild metadata: run id, started time, completed time, note count, and status.
+Records the successfully published build identity and statistics.
+
+```sql
+run_id INTEGER PRIMARY KEY AUTOINCREMENT
+started_at TEXT NOT NULL
+completed_at TEXT
+note_count INTEGER NOT NULL
+status TEXT NOT NULL
+mode TEXT NOT NULL
+generation TEXT NOT NULL
+manifest_version TEXT NOT NULL
+manifest_digest TEXT NOT NULL
+scanned_count INTEGER NOT NULL
+added_count INTEGER NOT NULL
+updated_count INTEGER NOT NULL
+removed_count INTEGER NOT NULL
+reused_count INTEGER NOT NULL
+fts_count INTEGER NOT NULL
+```
+
+The v0.5 source manifest uses `vault-manifest-v0.1`. It hashes sorted
+vault-relative POSIX paths and source checksums without storing note content,
+frontmatter values, absolute paths, or timestamps in the manifest identity.
+
+Older disposable databases may lack the extended columns. `create_schema`
+adds them with compatibility defaults, while a successful atomic full rebuild
+publishes complete metadata.
+
+## Atomic Full Publication
+
+A full build never clears the active database in place. It creates a sibling
+temporary SQLite database, parses every scanner-visible Markdown file, records
+the source manifest, and validates:
+
+- SQLite integrity and foreign keys
+- source, note, and FTS counts
+- one-to-one note/FTS coverage
+- stored and recomputed manifest identity
+- source stability through the end of the build
+
+Only a validated database is published with an atomic filesystem replacement.
+Parser, validation, source-race, or replacement failures remove the temporary
+database and leave the prior active database byte-for-byte unchanged.
+Publication is also rejected while the active database has a non-empty WAL
+file; callers must close the writer and allow SQLite to checkpoint before
+retrying.
 
 ## Reindex Rule
 

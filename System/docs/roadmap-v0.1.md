@@ -2,11 +2,14 @@
 
 ## Current Status
 
-Status checked on 2026-07-11.
+Status checked on 2026-07-14.
 
-The v0.1 read-only MVP remains the published stable baseline. The v0.2 read-only
-retrieval implementation is complete on `main`; another-device and interactive
-client discovery checks are deferred.
+The v0.1 read-only MVP remains the historical architecture baseline. The latest
+published stable release is `v0.4.0`, which includes optional semantic
+retrieval, note-contract validation, alias-aware indexing, and graph-aware
+retrieval. The next approved implementation boundary is the read-only v0.5
+operational freshness plan in `System/docs/roadmap-v0.5.md`. Another-device and
+interactive client discovery checks remain deferred.
 
 Summary:
 
@@ -26,11 +29,14 @@ Summary:
 | VS Code Codex extension setup | Complete locally |
 | Writeback implementation | Deferred |
 | Writeback permission design | Complete |
-| Vector search | Deferred |
+| Optional vector search | Complete; disabled by default |
+| Unified derived-state freshness | v0.5 Unit 1 complete |
+| Atomic full lexical publication | v0.5 Unit 2 complete |
+| Incremental lexical indexing | Planned for v0.5 |
 | Graph database | Deferred |
 | Local LLM calls | Deferred |
 | Release checklist and tag policy | Complete |
-| Public GitHub Release `v0.1.0` | Complete |
+| Public GitHub Release `v0.4.0` | Complete |
 | Current Intel Mac environment | Complete |
 | Other-device and client UI verification | Deferred by user |
 
@@ -225,7 +231,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `75` unit tests
+- `85` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -245,7 +251,11 @@ Current smoke verification:
 
 ## Current Known Limitations
 
-- No production embedding model adapter is enabled yet.
+- Production local embedding is opt-in and disabled by default.
+- Lexical full rebuilding publishes atomically; checksum-based incremental
+  publication is planned for v0.5 Unit 3.
+- Unified read-only freshness reporting is implemented, but lexical source
+  manifests are not persisted in run metadata until v0.5 Unit 2.
 - No graph database yet.
 - No local LLM call path yet.
 - No writeback tools are enabled.

@@ -1063,3 +1063,80 @@ Publication record:
   `eeab9f871fb7399b3f8d953280f57a9f1a8cc0434b0f74d0030c512784bf3b69`
 - source distribution SHA-256:
   `f574b76b73b33812cf8ad0c117959726f9bf6b16dd7e11c86356fc13abaedb32`
+
+### v0.5 Operational Freshness Boundary
+
+Decision:
+
+- define v0.5 as a read-only operational reliability phase rather than adding
+  another knowledge representation or generation feature
+- introduce a deterministic source manifest and one side-effect-free status
+  contract spanning validation, lexical state, and optional embedding state
+- add explicit atomic `full|incremental` lexical publication while retaining
+  `full` as the compatibility default
+- preserve the existing nine-tool MCP boundary during the first implementation
+  and expose unified status through Python and a dedicated CLI first
+- keep writeback, background indexing, model download, graph databases, local
+  LLM generation, migration, rename, and deletion outside v0.5
+
+Rationale:
+
+- Markdown remains authoritative, but operators currently lack one reliable
+  answer for whether every disposable index reflects the current source set
+- the lexical builder reparses all notes and can be made safer and faster by
+  validating a temporary database before atomic publication
+- source checksums and a deterministic vault manifest provide a portable
+  freshness identity without exposing note content, metadata values, absolute
+  paths, or timestamps
+- separating inspection from repair prevents a status command from silently
+  creating an index, loading a model, using the network, or mutating Markdown
+
+Canonical plan:
+
+- `System/docs/roadmap-v0.5.md`
+
+Implementation checkpoint:
+
+- add `vault-manifest-v0.1` and `vault-status-v0.1`
+- expose `cognitiveos-status` as the seventh development CLI while preserving
+  the published v0.4.0 six-CLI artifact record
+- classify lexical and optional embedding state without opening either DB in
+  write mode
+- keep a missing embedding index compatible with a healthy lexical-only system
+- return safe explicit rebuild commands for unhealthy derived state without
+  exposing absolute paths or private note metadata
+- retain exactly nine read-only MCP tools and leave writeback disabled
+- pass 80 automated tests after adding five status and manifest tests
+
+### v0.5 Atomic Full Lexical Publication
+
+Decision:
+
+- stop deleting rows from the active lexical database during a full rebuild
+- build a complete sibling SQLite database and publish only after source,
+  schema, count, FTS, foreign-key, and integrity validation succeeds
+- open `VaultIndex` lazily so construction and failed first builds do not create
+  an active database
+- persist one build generation, `vault-manifest-v0.1`, and explicit full-build
+  statistics in `index_runs`
+- retain `index_vault() -> int` for compatibility while exposing structured
+  full-build results to the CLI and future incremental implementation
+
+Rationale:
+
+- a disposable index should be replaceable without making a valid previous
+  generation unavailable during parsing or validation
+- checking the source manifest before parsing and immediately before publish
+  detects notes added, removed, or changed during the build
+- a temporary database permits strong failure injection tests without touching
+  Markdown or requiring rollback logic against the active index
+
+Implementation checkpoint:
+
+- parser, validation, source-race, and `os.replace` failures preserve the prior
+  active database byte-for-byte
+- a failed first build leaves no active database
+- temporary SQLite files are removed after both success and failure
+- publication is rejected instead of replacing an index with an active,
+  non-empty WAL sidecar
+- all 85 automated tests pass with `ResourceWarning` promoted to an error

@@ -16,6 +16,7 @@ graph-aware retrieval release v0.4.0:
 Implemented:
 
 - Python indexer
+- atomically published full lexical index with manifest and build statistics
 - SQLite/FTS search
 - PKM-aware search reranking
 - read-only MCP stdio server
@@ -26,6 +27,7 @@ Implemented:
 - deterministic token budgets and evidence allocation
 - explicit text/JSON CLI output formats
 - deterministic read-only note contract validation and v0.2 templates
+- deterministic vault manifest and unified read-only derived-state status
 - aliases in lexical search, ranking, backlink targets, and link suggestions
 - frontmatter `links` and `sources` indexed as typed graph edges
 - graph-aware related-note ranking and context-pack source selection
@@ -117,7 +119,7 @@ uv pip install --python .venv/bin/python '.[dev,mcp]'
 The install is intentionally non-editable. The current Python 3.14 runtime
 skips hidden `.pth` files, while the current `uv` editable flow names its source
 path file `_editable_impl_cognitiveos.pth`. A standard local install keeps all
-six CLI launchers functional. Reinstall after source changes when validating
+seven CLI launchers functional. Reinstall after source changes when validating
 the installed CLI surface; source-based tests continue to read `src/`
 directly.
 
@@ -161,7 +163,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 75 tests
+Ran 85 tests
 OK
 ```
 
@@ -182,11 +184,36 @@ PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_validate;
 The validator does not create an index or modify Markdown. The public v0.4.0
 wheel includes the `cognitiveos-validate` entry point.
 
+## Inspect Vault and Derived State
+
+The v0.5 development tree provides a unified read-only status command:
+
+```bash
+PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_status; raise SystemExit(main_status())" . --format text
+```
+
+Use JSON for deterministic automation output:
+
+```bash
+PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_status; raise SystemExit(main_status())" . --scope user --format json
+```
+
+The command reports validation, lexical index freshness, optional embedding
+coverage, and `vault-manifest-v0.1`. It creates no index, loads no model, uses
+no network, and returns no note text, frontmatter values, or absolute paths.
+The published v0.4.0 wheel predates this seventh CLI entry point.
+
 ## Build the Local Index
 
 ```bash
-PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_index; main_index()" --format text
+PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_index; main_index()" --mode full --format text
 ```
+
+Full builds are assembled and validated in a temporary SQLite database before
+the active index is replaced atomically. JSON output includes the source
+manifest, build generation, and added/updated/removed/reused counts. A parser,
+validation, source-race, or publication failure leaves the previous active
+database unchanged.
 
 The generated database is stored under:
 
@@ -262,6 +289,16 @@ The implementation-vs-roadmap status is maintained in:
 ```text
 System/docs/roadmap-v0.1.md
 ```
+
+The approved next read-only reliability phase is maintained in:
+
+```text
+System/docs/roadmap-v0.5.md
+```
+
+It defines deterministic source manifests, unified side-effect-free status,
+and atomic full and incremental lexical index publication. It does not
+authorize writeback, background indexing, or automatic model loading.
 
 The approved design for future opt-in semantic retrieval is maintained in:
 
@@ -388,7 +425,7 @@ System/docs/release-v0.4.md
 Current package version:
 
 ```text
-0.4.0
+0.5.0a1
 ```
 
 Published stable release:

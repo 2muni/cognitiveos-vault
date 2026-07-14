@@ -304,8 +304,8 @@ tracked separately in `System/docs/release-v0.3.md`.
 Release policy:
 
 - `System/docs/release-v0.1.md`
-- current release-candidate package version: `0.4.0`
-- latest published stable tag and GitHub Release: `v0.3.0`
+- current published package version: `0.4.0`
+- latest published stable tag and GitHub Release: `v0.4.0`
 
 ## Next Read-only Quality Phase
 
@@ -358,7 +358,7 @@ Completed third implementation unit:
 
 ## Alias-aware Retrieval Development
 
-Status: Implemented and verified for the `0.4.0` release candidate.
+Status: Published as `v0.4.0` on 2026-07-14.
 
 Delivered:
 

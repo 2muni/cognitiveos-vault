@@ -4,15 +4,13 @@
 
 Feature status: complete and integrated into `main`.
 
-Release status: final `0.4.0` release candidate; publication is pending.
+Release status: published on 2026-07-14.
 
-Current release-candidate identity: `0.4.0`.
+Published package identity: `0.4.0`.
 
-Latest published stable release: `v0.3.0`.
+Latest published stable release: `v0.4.0`.
 
-Do not create or publish `v0.4.0` until every required release operation below
-has passed against one exact commit and the user explicitly approves
-publication.
+The immutable `v0.4.0` tag points to the exact verified release source commit.
 
 ## Implemented v0.4 Scope
 
@@ -70,7 +68,7 @@ changed in a separate decision.
 - [x] change package and MCP identity from `0.4.0a1` to `0.4.0`
 - [x] write `System/docs/release-notes-v0.4.0.md`
 - [x] cross-check README, roadmap, schemas, package metadata, and release notes
-- [ ] obtain explicit user approval before the release commit, annotated tag,
+- [x] obtain explicit user approval before the release commit, annotated tag,
       push, assets, and GitHub Release
 
 ## Release-candidate Verification Record
@@ -124,8 +122,21 @@ SHA-256 before and after verification:
 `de2ca6bafe5764506a6d2f686b0ef02aeffd7d4c84b0a6c064f02e5866c7ed1f`.
 
 This record establishes a verified `0.4.0a1` release-candidate baseline. The
-exact final `0.4.0` release commit still requires the unchecked version,
-release-note, cross-document, and explicit-publication gates above.
+exact final `0.4.0` release commit subsequently completed the version,
+release-note, cross-document, explicit-approval, and publication gates above.
+
+## Publication Record
+
+`v0.4.0` was published on 2026-07-14. The annotated tag object
+`4bf9e3c2b8ecc7720f0a8f4fac2317c45e3ceb24` peels to exact release source
+commit `24a4d3e6b559b8eb1c7044e987e84793b1008d30`. The merged `main` commit
+has the same source tree. GitHub Release assets were re-downloaded and their
+SHA-256 digests matched:
+
+| Asset | SHA-256 |
+| --- | --- |
+| `cognitiveos-0.4.0-py3-none-any.whl` | `eeab9f871fb7399b3f8d953280f57a9f1a8cc0434b0f74d0030c512784bf3b69` |
+| `cognitiveos-0.4.0.tar.gz` | `f574b76b73b33812cf8ad0c117959726f9bf6b16dd7e11c86356fc13abaedb32` |
 
 ## Explicitly Deferred and Non-blocking
 
@@ -144,7 +155,7 @@ feature count.
 
 The v0.4 implementation is feature-complete because its planned read-only
 contract, retrieval, graph, and indexing units are integrated and passing their
-tests. It becomes a release candidate only when the clean-worktree, packaging,
-dual-runtime, offline-model, and actual-vault gates pass against one exact
-commit. It becomes released only after identity is changed to `0.4.0`, the
-exact commit is explicitly approved, and immutable publication succeeds.
+tests. It became a release candidate after the clean-worktree, packaging,
+dual-runtime, offline-model, and actual-vault gates passed against one exact
+commit. It was released after identity changed to `0.4.0`, the exact commit was
+explicitly approved, and immutable publication succeeded.

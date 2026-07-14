@@ -1,6 +1,6 @@
 # CognitiveOS v0.4.0 Release Notes
 
-Status: Release candidate. Publication pending explicit approval.
+Status: Published on 2026-07-14. Tag: `v0.4.0`.
 
 ## Summary
 
@@ -118,10 +118,10 @@ Detailed release-candidate evidence is recorded in
 - note migrations, bulk normalization, renames, and deletes
 - other-device and Codex/VS Code visual discovery checks
 
-## Publication Gate
+## Publication Record
 
-The exact `0.4.0` release commit must pass clean-worktree packaging,
-dual-runtime tests, forced-offline model evaluation, actual-vault index and MCP
-checks, and private Markdown checksum verification. The annotated `v0.4.0` tag,
-push, release assets, and GitHub Release require explicit user approval and must
-not move after publication.
+The exact `0.4.0` source commit `24a4d3e6b559b8eb1c7044e987e84793b1008d30`
+was explicitly approved, tagged, pushed, and published on 2026-07-14. The
+annotated `v0.4.0` tag is immutable and its wheel and source distribution were
+downloaded again from GitHub after publication; their SHA-256 values matched the
+release metadata. Historical tags must not be moved.

@@ -1040,3 +1040,26 @@ Rationale:
   release audit reproducible
 - a publication pause prevents verification authority from being treated as
   authorization to mutate remote `main`, tags, or release state
+
+### Publication: CognitiveOS v0.4.0
+
+Decision:
+
+- publish `v0.4.0` only after the final source commit, clean dual-runtime
+  verification, package artifacts, forced-offline model evaluation, actual-vault
+  integrity, and private checksum gate have all passed
+- tag exact release source commit `24a4d3e6b559b8eb1c7044e987e84793b1008d30`
+  with annotated tag `v0.4.0`
+- publish the public GitHub Release with the verified wheel and source
+  distribution, then re-download both assets and compare SHA-256 values
+- retain the merge commit on `main` because it has the same verified source tree
+  as the tagged release commit
+
+Publication record:
+
+- published 2026-07-14
+- GitHub Release: `https://github.com/2muni/cognitiveos-vault/releases/tag/v0.4.0`
+- wheel SHA-256:
+  `eeab9f871fb7399b3f8d953280f57a9f1a8cc0434b0f74d0030c512784bf3b69`
+- source distribution SHA-256:
+  `f574b76b73b33812cf8ad0c117959726f9bf6b16dd7e11c86356fc13abaedb32`

@@ -2,8 +2,8 @@
 
 CognitiveOS is a Markdown-first, local-first, MCP-addressable PKM system for an Obsidian vault.
 
-The latest published stable release is the read-only semantic-retrieval release
-v0.3.0. The current source tree is the verified `0.4.0` release candidate:
+The latest published stable release is the read-only knowledge-contract and
+graph-aware retrieval release v0.4.0:
 
 - scans Markdown notes
 - parses frontmatter, headings, wikilinks, and Markdown links
@@ -80,7 +80,7 @@ Read-only tools:
 - `propose_moc`
 - `build_context_pack`
 
-No MCP tool writes to Markdown. The `0.4.0` release candidate remains read-only.
+No MCP tool writes to Markdown. The published `0.4.0` release remains read-only.
 
 ## Intel Mac Quick Start
 
@@ -121,31 +121,32 @@ six CLI launchers functional. Reinstall after source changes when validating
 the installed CLI surface; source-based tests continue to read `src/`
 directly.
 
-## Install v0.3.0 Release Assets
+## Install v0.4.0 Release Assets
 
 The GitHub Release provides a universal Python wheel and source distribution:
 
 ```text
-https://github.com/2muni/cognitiveos-vault/releases/tag/v0.3.0
+https://github.com/2muni/cognitiveos-vault/releases/tag/v0.4.0
 ```
 
 Download either asset, verify its SHA-256 digest, then install the wheel with
 Python 3.11 or newer:
 
 ```bash
-shasum -a 256 cognitiveos-0.3.0-py3-none-any.whl
-python -m pip install cognitiveos-0.3.0-py3-none-any.whl
+shasum -a 256 cognitiveos-0.4.0-py3-none-any.whl
+python -m pip install cognitiveos-0.4.0-py3-none-any.whl
 ```
 
 Expected release-asset digests:
 
 ```text
-7360c7b8ef26bfa9d57029402244a224453cce021ef34add6ca141422ff28cbe  cognitiveos-0.3.0-py3-none-any.whl
-7d84e96276373fef5128b82b905b83b9183f393927a35d633f28432c4656e624  cognitiveos-0.3.0.tar.gz
+eeab9f871fb7399b3f8d953280f57a9f1a8cc0434b0f74d0030c512784bf3b69  cognitiveos-0.4.0-py3-none-any.whl
+f574b76b73b33812cf8ad0c117959726f9bf6b16dd7e11c86356fc13abaedb32  cognitiveos-0.4.0.tar.gz
 ```
 
 The wheel exposes `cognitiveos-index`, `cognitiveos-search`,
-`cognitiveos-mcp`, `cognitiveos-embed`, and `cognitiveos-evaluate-embeddings`.
+`cognitiveos-mcp`, `cognitiveos-embed`, `cognitiveos-evaluate-embeddings`, and
+`cognitiveos-validate`.
 For local development or the optional semantic runtime, clone the repository
 and use the environment setup described below instead.
 
@@ -178,10 +179,8 @@ JSON and strict validation are explicit:
 PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_validate; raise SystemExit(main_validate())" . --scope user --strict --format json
 ```
 
-The validator does not create an index or modify Markdown. The public v0.3.0
-wheel predates this development command; `cognitiveos-validate` is available
-from the current source tree and future packages that include the new entry
-point.
+The validator does not create an index or modify Markdown. The public v0.4.0
+wheel includes the `cognitiveos-validate` entry point.
 
 ## Build the Local Index
 
@@ -239,7 +238,7 @@ Open the vault root in VS Code and confirm the Codex extension loads the `cognit
 
 ## Writeback Policy
 
-Writeback is not implemented in v0.3.0.
+Writeback is not implemented in v0.4.0.
 
 The future writeback design is documented in:
 
@@ -374,7 +373,7 @@ The published v0.3.0 release notes are maintained in:
 System/docs/release-notes-v0.3.0.md
 ```
 
-The v0.4.0 release-candidate notes are maintained in:
+The published v0.4.0 release notes are maintained in:
 
 ```text
 System/docs/release-notes-v0.4.0.md
@@ -395,8 +394,8 @@ Current package version:
 Published stable release:
 
 ```text
-v0.3.0
+v0.4.0
 ```
 
-`v0.3.0` was published on 2026-07-12 after the planned semantic retrieval,
-model evaluation, privacy, packaging, and release gates completed.
+`v0.4.0` was published on 2026-07-14 after the planned note-contract,
+graph-aware retrieval, packaging, dual-runtime, and release gates completed.

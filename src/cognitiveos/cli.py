@@ -26,15 +26,19 @@ def main_index() -> None:
     parser = argparse.ArgumentParser(description="Index a CognitiveOS Markdown vault")
     parser.add_argument("vault_root", nargs="?", default=".", help="Vault root path")
     parser.add_argument("--db", default=None, help="SQLite DB path")
+    parser.add_argument("--mode", choices=("full",), default="full", help="Index publication mode")
     parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     args = parser.parse_args()
     db_path = Path(args.db) if args.db else default_index_path(args.vault_root)
     with VaultIndex(db_path) as index:
-        count = index.index_vault(args.vault_root)
+        result = index.build_vault(args.vault_root, mode=args.mode)
     if args.format == "json":
-        print(json.dumps({"indexed_notes": count, "index_path": str(db_path)}, ensure_ascii=False, indent=2))
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
     else:
-        print(f"Indexed {count} notes into {db_path}")
+        print(
+            f"Indexed {result.note_count} notes into {db_path} "
+            f"(mode={result.mode}, manifest={result.manifest_digest})"
+        )
 
 
 def main_search() -> None:

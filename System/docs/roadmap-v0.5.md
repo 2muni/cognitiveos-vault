@@ -2,8 +2,8 @@
 
 ## Status
 
-Design approved on 2026-07-14. Unit 1 is implemented on the v0.5 development
-branch; atomic lexical publication has not started.
+Design approved on 2026-07-14. Units 1 and 2 are implemented on the v0.5
+development branch; incremental lexical publication has not started.
 
 The latest published stable release remains `v0.4.0`. This plan defines the
 next read-only implementation boundary; it does not authorize writeback,
@@ -223,11 +223,31 @@ Implementation checkpoint:
 
 ### Unit 2: Atomic Full Publication
 
+Status: Complete.
+
 - move full lexical rebuilding to a temporary database
 - validate before atomic replacement
 - preserve the active database on injected parser, SQLite, and publication
   failures
 - persist source manifest and run statistics
+
+Implementation checkpoint:
+
+- `VaultIndex` opens SQLite lazily so a failed first build leaves no active DB
+- full builds use a disposable sibling database and publish with `os.replace`
+- source manifests are checked before parsing, from parsed note rows, and again
+  immediately before publication to reject concurrent Markdown changes
+- `PRAGMA integrity_check`, foreign keys, counts, FTS coverage, and manifest
+  identity must pass before publication
+- completed runs store mode, generation, manifest, scanned/added/updated/
+  removed/reused counts, note count, and FTS count
+- the legacy `index_vault() -> int` Python contract remains compatible while
+  structured CLI output exposes `LexicalBuildResult`
+- parser, validator, source-race, and atomic-replace failure tests preserve the
+  previous active database byte-for-byte and remove the temporary database
+- publication is rejected while a non-empty active WAL exists, avoiding a
+  replacement that could be combined with uncheckpointed rows
+- all 85 automated tests pass
 
 ### Unit 3: Incremental Lexical Publication
 
@@ -247,7 +267,7 @@ Implementation checkpoint:
 ## Completion Gates
 
 - all existing 75 tests pass before adding new coverage; the current suite has
-  80 tests after Unit 1
+  85 tests after Units 1 and 2
 - manifest output is identical across repeated runs and path separator variants
 - status inspection creates and modifies no files
 - status never imports or loads the optional model runtime

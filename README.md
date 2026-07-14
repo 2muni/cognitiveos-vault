@@ -16,6 +16,7 @@ graph-aware retrieval release v0.4.0:
 Implemented:
 
 - Python indexer
+- atomically published full lexical index with manifest and build statistics
 - SQLite/FTS search
 - PKM-aware search reranking
 - read-only MCP stdio server
@@ -162,7 +163,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 80 tests
+Ran 85 tests
 OK
 ```
 
@@ -205,8 +206,14 @@ The published v0.4.0 wheel predates this seventh CLI entry point.
 ## Build the Local Index
 
 ```bash
-PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_index; main_index()" --format text
+PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_index; main_index()" --mode full --format text
 ```
+
+Full builds are assembled and validated in a temporary SQLite database before
+the active index is replaced atomically. JSON output includes the source
+manifest, build generation, and added/updated/removed/reused counts. A parser,
+validation, source-race, or publication failure leaves the previous active
+database unchanged.
 
 The generated database is stored under:
 

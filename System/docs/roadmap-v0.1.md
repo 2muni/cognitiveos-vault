@@ -31,6 +31,7 @@ Summary:
 | Writeback permission design | Complete |
 | Optional vector search | Complete; disabled by default |
 | Unified derived-state freshness | v0.5 Unit 1 complete |
+| Atomic full lexical publication | v0.5 Unit 2 complete |
 | Incremental lexical indexing | Planned for v0.5 |
 | Graph database | Deferred |
 | Local LLM calls | Deferred |
@@ -230,7 +231,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `80` unit tests
+- `85` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -251,8 +252,8 @@ Current smoke verification:
 ## Current Known Limitations
 
 - Production local embedding is opt-in and disabled by default.
-- Lexical indexing still performs a full rebuild; atomic incremental
-  publication is planned for v0.5.
+- Lexical full rebuilding publishes atomically; checksum-based incremental
+  publication is planned for v0.5 Unit 3.
 - Unified read-only freshness reporting is implemented, but lexical source
   manifests are not persisted in run metadata until v0.5 Unit 2.
 - No graph database yet.

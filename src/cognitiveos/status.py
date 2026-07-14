@@ -1,47 +1,27 @@
 from __future__ import annotations
 
-import hashlib
 import shlex
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from . import __version__
 from .embedding_index import default_embedding_index_path, unpack_vector
 from .indexer import default_index_path
-from .parser import read_text
-from .scanner import iter_markdown_files
+from .manifest import (
+    MANIFEST_VERSION,
+    ManifestRecord,
+    VaultManifest,
+    build_vault_manifest,
+    manifest_from_records,
+)
 from .safety import resolve_vault_root
 from .validation import validate_vault
 
 
-MANIFEST_VERSION = "vault-manifest-v0.1"
 STATUS_VERSION = "vault-status-v0.1"
-
-
-@dataclass(frozen=True)
-class ManifestRecord:
-    path: str
-    checksum: str
-
-
-@dataclass(frozen=True)
-class VaultManifest:
-    manifest_version: str
-    algorithm: str
-    markdown_count: int
-    digest: str
-    records: tuple[ManifestRecord, ...]
-
-    def public_dict(self) -> dict[str, Any]:
-        return {
-            "manifest_version": self.manifest_version,
-            "algorithm": self.algorithm,
-            "markdown_count": self.markdown_count,
-            "digest": self.digest,
-        }
 
 
 @dataclass(frozen=True)
@@ -70,37 +50,6 @@ class VaultStatus:
                 "network_used": False,
             },
         }
-
-
-def build_vault_manifest(vault_root: str | Path) -> VaultManifest:
-    root = resolve_vault_root(vault_root)
-    records = tuple(
-        ManifestRecord(
-            path=path.relative_to(root).as_posix(),
-            checksum=hashlib.sha256(read_text(path).encode("utf-8")).hexdigest(),
-        )
-        for path in iter_markdown_files(root)
-    )
-    return manifest_from_records(records)
-
-
-def manifest_from_records(records: Iterable[ManifestRecord]) -> VaultManifest:
-    ordered = tuple(sorted(records, key=lambda item: item.path))
-    digest = hashlib.sha256()
-    for record in ordered:
-        if not record.path or not record.checksum:
-            raise ValueError("manifest records require a path and checksum")
-        digest.update(record.path.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(record.checksum.encode("ascii"))
-        digest.update(b"\n")
-    return VaultManifest(
-        manifest_version=MANIFEST_VERSION,
-        algorithm="sha256-path-checksum-v1",
-        markdown_count=len(ordered),
-        digest=digest.hexdigest(),
-        records=ordered,
-    )
 
 
 def inspect_vault_status(
@@ -152,11 +101,31 @@ def inspect_lexical_index(db_path: str | Path, manifest: VaultManifest) -> dict[
             integrity = str(conn.execute("PRAGMA integrity_check").fetchone()[0])
             if integrity != "ok":
                 return _lexical_empty_state("corrupt")
+            run_columns = {
+                str(row[1]) for row in conn.execute("PRAGMA table_info(index_runs)").fetchall()
+            }
+            has_manifest_metadata = {
+                "mode",
+                "generation",
+                "manifest_version",
+                "manifest_digest",
+                "scanned_count",
+                "added_count",
+                "updated_count",
+                "removed_count",
+                "reused_count",
+                "fts_count",
+            }.issubset(run_columns)
+            extra_columns = (
+                ", mode, generation, manifest_version, manifest_digest, "
+                "scanned_count, added_count, updated_count, removed_count, "
+                "reused_count, fts_count"
+                if has_manifest_metadata
+                else ""
+            )
             run = conn.execute(
-                """
-                SELECT run_id, completed_at, note_count, status
-                FROM index_runs ORDER BY run_id DESC LIMIT 1
-                """
+                "SELECT run_id, completed_at, note_count, status "
+                f"{extra_columns} FROM index_runs ORDER BY run_id DESC LIMIT 1"
             ).fetchone()
             note_rows = conn.execute("SELECT path, checksum FROM notes ORDER BY path").fetchall()
             fts_count = int(conn.execute("SELECT COUNT(*) FROM fts_notes").fetchone()[0])
@@ -170,11 +139,24 @@ def inspect_lexical_index(db_path: str | Path, manifest: VaultManifest) -> dict[
             if run is not None:
                 result["last_run_id"] = int(run["run_id"])
                 result["last_completed_at"] = run["completed_at"]
+                if has_manifest_metadata:
+                    result.update(
+                        {
+                            "mode": str(run["mode"]),
+                            "generation": str(run["generation"]),
+                            "scanned_count": int(run["scanned_count"]),
+                            "added_count": int(run["added_count"]),
+                            "updated_count": int(run["updated_count"]),
+                            "removed_count": int(run["removed_count"]),
+                            "reused_count": int(run["reused_count"]),
+                        }
+                    )
             if (
                 run is None
                 or run["status"] != "completed"
                 or int(run["note_count"]) != note_count
                 or fts_count != note_count
+                or (has_manifest_metadata and int(run["fts_count"]) != fts_count)
             ):
                 result["state"] = "incomplete"
                 result["remediation"] = "cognitiveos-index . --format text"
@@ -184,6 +166,14 @@ def inspect_lexical_index(db_path: str | Path, manifest: VaultManifest) -> dict[
                 for row in note_rows
             )
             result["manifest_digest"] = indexed_manifest.digest
+            if has_manifest_metadata and (
+                run["manifest_version"] != MANIFEST_VERSION
+                or run["manifest_digest"] != indexed_manifest.digest
+                or int(run["scanned_count"]) != note_count
+            ):
+                result["state"] = "incomplete"
+                result["remediation"] = "cognitiveos-index . --format text"
+                return result
             if indexed_manifest.digest != manifest.digest:
                 result["state"] = "stale"
                 result["remediation"] = "cognitiveos-index . --format text"

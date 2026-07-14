@@ -1107,3 +1107,36 @@ Implementation checkpoint:
   exposing absolute paths or private note metadata
 - retain exactly nine read-only MCP tools and leave writeback disabled
 - pass 80 automated tests after adding five status and manifest tests
+
+### v0.5 Atomic Full Lexical Publication
+
+Decision:
+
+- stop deleting rows from the active lexical database during a full rebuild
+- build a complete sibling SQLite database and publish only after source,
+  schema, count, FTS, foreign-key, and integrity validation succeeds
+- open `VaultIndex` lazily so construction and failed first builds do not create
+  an active database
+- persist one build generation, `vault-manifest-v0.1`, and explicit full-build
+  statistics in `index_runs`
+- retain `index_vault() -> int` for compatibility while exposing structured
+  full-build results to the CLI and future incremental implementation
+
+Rationale:
+
+- a disposable index should be replaceable without making a valid previous
+  generation unavailable during parsing or validation
+- checking the source manifest before parsing and immediately before publish
+  detects notes added, removed, or changed during the build
+- a temporary database permits strong failure injection tests without touching
+  Markdown or requiring rollback logic against the active index
+
+Implementation checkpoint:
+
+- parser, validation, source-race, and `os.replace` failures preserve the prior
+  active database byte-for-byte
+- a failed first build leaves no active database
+- temporary SQLite files are removed after both success and failure
+- publication is rejected instead of replacing an index with an active,
+  non-empty WAL sidecar
+- all 85 automated tests pass with `ResourceWarning` promoted to an error

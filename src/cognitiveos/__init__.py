@@ -34,6 +34,7 @@ from .embedding_index import (
     search_embedding_index,
     unpack_vector,
 )
+from .indexer import LexicalBuildResult, build_full_index
 from .sentence_transformers_adapter import SentenceTransformersProvider
 from .validation import (
     VALIDATION_VERSION,
@@ -42,16 +43,14 @@ from .validation import (
     validate_note_file,
     validate_vault,
 )
-from .status import (
+from .manifest import (
     MANIFEST_VERSION,
-    STATUS_VERSION,
     ManifestRecord,
     VaultManifest,
-    VaultStatus,
     build_vault_manifest,
-    inspect_vault_status,
     manifest_from_records,
 )
+from .status import STATUS_VERSION, VaultStatus, inspect_vault_status
 
 __all__ = [
     "EmbeddingConfigurationError",
@@ -74,6 +73,7 @@ __all__ = [
     "MANIFEST_VERSION",
     "STATUS_VERSION",
     "ManifestRecord",
+    "LexicalBuildResult",
     "VaultManifest",
     "VaultStatus",
     "ValidationDiagnostic",
@@ -93,6 +93,7 @@ __all__ = [
     "validate_note_file",
     "validate_vault",
     "build_vault_manifest",
+    "build_full_index",
     "inspect_vault_status",
     "manifest_from_records",
 ]

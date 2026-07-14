@@ -1291,6 +1291,111 @@ class SemanticRetrievalTests(CognitiveOSTestCase):
 
 
 class IndexTests(CognitiveOSTestCase):
+    def test_atomic_full_build_records_manifest_and_statistics(self) -> None:
+        self.write_note("alpha.md", "# Alpha\n\nEvidence")
+        self.write_note("nested/한글.md", "# 한글\n\n근거")
+
+        with VaultIndex(self.db_path) as index:
+            result = index.build_vault(self.root)
+
+        self.assertEqual(result.mode, "full")
+        self.assertEqual(result.scanned_count, 2)
+        self.assertEqual(result.added_count, 2)
+        self.assertEqual(result.updated_count, 0)
+        self.assertEqual(result.removed_count, 0)
+        self.assertEqual(result.reused_count, 0)
+        self.assertEqual(result.note_count, 2)
+        self.assertEqual(result.fts_count, 2)
+        self.assertEqual(result.manifest_digest, build_vault_manifest(self.root).digest)
+        self.assertFalse(self.db_path.with_name(f".{self.db_path.name}.tmp").exists())
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            run = conn.execute("SELECT * FROM index_runs ORDER BY run_id DESC LIMIT 1").fetchone()
+            self.assertEqual(run["status"], "completed")
+            self.assertEqual(run["mode"], "full")
+            self.assertEqual(run["generation"], result.generation)
+            self.assertEqual(run["manifest_version"], MANIFEST_VERSION)
+            self.assertEqual(run["manifest_digest"], result.manifest_digest)
+            self.assertEqual(run["scanned_count"], 2)
+            self.assertEqual(run["added_count"], 2)
+            self.assertEqual(run["note_count"], 2)
+            self.assertEqual(run["fts_count"], 2)
+            self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+
+        status = inspect_vault_status(self.root, db_path=self.db_path)
+        self.assertEqual(status.lexical["state"], "healthy")
+        self.assertEqual(status.lexical["mode"], "full")
+        self.assertEqual(status.lexical["generation"], result.generation)
+        self.assertEqual(status.lexical["added_count"], 2)
+
+    def test_first_parser_failure_leaves_no_active_database(self) -> None:
+        self.write_note("note.md", "# Note\n\nEvidence")
+
+        with patch(
+            "cognitiveos.indexer.parse_markdown_file",
+            side_effect=RuntimeError("injected parser failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "injected parser failure"):
+                with VaultIndex(self.db_path) as index:
+                    index.index_vault(self.root)
+
+        self.assertFalse(self.db_path.exists())
+        self.assertFalse(self.db_path.with_name(f".{self.db_path.name}.tmp").exists())
+
+    def test_validation_and_publish_failures_preserve_active_database(self) -> None:
+        note = self.write_note("note.md", "# Note\n\nInitial")
+        self.index()
+        original = self.db_path.read_bytes()
+        note.write_text("# Note\n\nChanged", encoding="utf-8")
+
+        with patch(
+            "cognitiveos.indexer.validate_lexical_index",
+            side_effect=ValueError("injected validation failure"),
+        ):
+            with self.assertRaisesRegex(ValueError, "injected validation failure"):
+                self.index()
+        self.assertEqual(self.db_path.read_bytes(), original)
+        self.assertFalse(self.db_path.with_name(f".{self.db_path.name}.tmp").exists())
+
+        with patch(
+            "cognitiveos.indexer.os.replace",
+            side_effect=OSError("injected publish failure"),
+        ):
+            with self.assertRaisesRegex(OSError, "injected publish failure"):
+                self.index()
+        self.assertEqual(self.db_path.read_bytes(), original)
+        self.assertFalse(self.db_path.with_name(f".{self.db_path.name}.tmp").exists())
+
+    def test_source_change_during_build_preserves_active_database(self) -> None:
+        note_path = self.write_note("note.md", "# Note\n\nInitial")
+        self.index()
+        original_database = self.db_path.read_bytes()
+        original_parser = parse_markdown_file
+
+        def parse_then_change(path: str | Path, root: str | Path):
+            note = original_parser(path, root)
+            note_path.write_text("# Note\n\nChanged during build", encoding="utf-8")
+            return note
+
+        with patch("cognitiveos.indexer.parse_markdown_file", side_effect=parse_then_change):
+            with self.assertRaisesRegex(RuntimeError, "source set changed"):
+                self.index()
+
+        self.assertEqual(self.db_path.read_bytes(), original_database)
+        self.assertFalse(self.db_path.with_name(f".{self.db_path.name}.tmp").exists())
+
+    def test_active_wal_blocks_publication_and_preserves_database(self) -> None:
+        self.write_note("note.md", "# Note\n\nEvidence")
+        self.index()
+        original_database = self.db_path.read_bytes()
+        Path(f"{self.db_path}-wal").write_bytes(b"active-wal")
+
+        with self.assertRaisesRegex(RuntimeError, "active WAL"):
+            self.index()
+
+        self.assertEqual(self.db_path.read_bytes(), original_database)
+        self.assertFalse(self.db_path.with_name(f".{self.db_path.name}.tmp").exists())
+
     def test_skips_local_runtime_directories(self) -> None:
         self.write_note("note.md", "# Durable note")
         self.write_note(".venv/lib/package/LICENSE.md", "# Package license")
@@ -2308,12 +2413,25 @@ class CLITests(CognitiveOSTestCase):
         with patch.object(
             sys,
             "argv",
-            ["cognitiveos-index", str(self.root), "--db", str(self.db_path), "--format", "json"],
+            [
+                "cognitiveos-index",
+                str(self.root),
+                "--db",
+                str(self.db_path),
+                "--mode",
+                "full",
+                "--format",
+                "json",
+            ],
         ), redirect_stdout(json_output):
             main_index()
         index_payload = json.loads(json_output.getvalue())
         self.assertEqual(index_payload["indexed_notes"], 1)
         self.assertEqual(index_payload["index_path"], str(self.db_path))
+        self.assertEqual(index_payload["mode"], "full")
+        self.assertEqual(index_payload["manifest_version"], MANIFEST_VERSION)
+        self.assertEqual(index_payload["scanned_count"], 1)
+        self.assertEqual(index_payload["added_count"], 1)
 
         text_output = io.StringIO()
         with patch.object(

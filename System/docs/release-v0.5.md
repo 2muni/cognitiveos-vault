@@ -2,9 +2,9 @@
 
 ## Status
 
-Stabilization is in progress on 2026-07-14. The latest published stable release
-remains `v0.4.0`; this document does not authorize a `v0.5.0` version bump,
-tag, push, or GitHub Release.
+Stabilization completed on 2026-07-14. The implementation is feature-complete,
+but the latest published stable release remains `v0.4.0`; this document does
+not authorize a `v0.5.0` version bump, tag, push, or GitHub Release.
 
 The v0.5 implementation is read-only. Markdown and frontmatter remain the
 durable source of truth, the default semantic runtime remains `off`, MCP retains
@@ -57,9 +57,42 @@ file size, and modification time. No Markdown was parsed or written.
 - private Markdown baseline: 9 files, aggregate digest
   `4f6886919d89d27024b71b966c3e74fcd43bffc45c24087978d8747c6ccb0435`
 
-Clean-worktree packaging, forced-offline required semantic retrieval, final
-derived-state synchronization, and exact-commit checks remain before this unit
-can be marked complete.
+## Clean-worktree Verification
+
+Detached checkpoint `d148e06` was installed into new runtime environments with
+no dependency on the original vault environments.
+
+- Python 3.14.6: 92 tests pass with `ResourceWarning` promoted to an error
+- installed package identity: `0.5.0a1`
+- all seven development CLI entry points return help successfully
+- Python 3.12.13 local-embedding runtime: 92 tests pass
+- pinned model forced-offline evaluation: Recall@5 `1.0`, MRR `1.0`, all gates
+  pass
+- clean environment verification: 50 tracked Markdown notes indexed, MCP
+  initializes, exactly nine tools are exposed, invalid calls return errors, and
+  writeback is disabled
+- wheel-only installation succeeds and exposes all seven CLI entry points
+- wheel and source distribution build twice with byte-identical output
+- a second build performed after `.venv*` and `.pkm-index` creation excludes
+  every runtime and derived index
+- no private note, model weight, or local database is present in either
+  artifact; the tracked `Assets/.gitkeep` placeholder remains intentional
+
+## Final Local State
+
+- validation errors: 0
+- lexical index: healthy, 59 notes and 59 FTS rows
+- embedding index: healthy, 59 notes, 509 chunks, dimension 384
+- lexical and embedding `PRAGMA integrity_check`: `ok`
+- actual-vault forced-offline required search: `semantic_used=true`, semantic
+  rank 1
+- MCP: package version `0.5.0a1`, nine read-only tools, invalid-call error, no
+  writeback surface
+- private Markdown: 9 files with the unchanged aggregate digest recorded above
+
+Unit 4 is complete. A separate release-candidate task must still inspect the
+final branch diff, decide whether to retain observation time, and explicitly
+authorize any `0.5.0` version change or public release operation.
 
 ## Publication Boundary
 

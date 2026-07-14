@@ -278,7 +278,7 @@ Implementation checkpoint:
 
 ### Unit 4: Stabilization
 
-Status: In progress.
+Status: Complete.
 
 - run both modes against the actual vault
 - record full, changed, and no-op timings without exposing note paths or content
@@ -295,8 +295,17 @@ Current checkpoint:
   unchanged database SHA-256, modification time, size, and generation
 - Python 3.14 default and Python 3.12 local-embedding environments each pass 92
   tests with `ResourceWarning` promoted to an error
-- clean-worktree packaging, forced-offline semantic retrieval, final checksum,
-  and exact-commit verification remain pending
+- detached clean-worktree Python 3.14 and Python 3.12 environments each pass 92
+  tests; wheel-only installation exposes all seven development CLIs
+- pinned-model forced-offline evaluation passes Recall@5 and MRR at `1.0`
+- clean environment verification indexes 50 tracked notes and confirms MCP
+  initialize, nine tools, invalid-call errors, and writeback disabled
+- wheel and source distribution builds are reproducible before and after local
+  runtime and derived-index creation; runtime, model, private-note, and derived
+  artifacts remain excluded
+- final actual-vault state is healthy at 59 lexical notes/FTS rows and 59
+  embedding notes/509 chunks, with both SQLite integrity checks passing
+- private Markdown remains unchanged
 
 ## Completion Gates
 

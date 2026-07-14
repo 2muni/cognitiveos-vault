@@ -1198,3 +1198,20 @@ Measured checkpoint:
 - default Python 3.14 and local-embedding Python 3.12 each pass all 92 tests
 - private Markdown baseline contains 9 files with aggregate digest
   `4f6886919d89d27024b71b966c3e74fcd43bffc45c24087978d8747c6ccb0435`
+
+Completion checkpoint:
+
+- detached clean-worktree checkpoint `d148e06` passes all 92 tests in new
+  Python 3.14 and Python 3.12 local-embedding environments
+- a wheel-only install reports `0.5.0a1` and exposes all seven CLI entry points
+- pinned `multilingual-e5-small` forced-offline evaluation passes Recall@5 and
+  MRR at `1.0`
+- environment verification indexes 50 tracked notes and confirms MCP
+  initialize, nine read-only tools, invalid-call errors, and writeback disabled
+- wheel and source distribution output is byte-identical before and after
+  creating local runtimes and `.pkm-index`; excluded state does not leak into
+  artifacts
+- actual-vault lexical and embedding states are healthy at 59 notes, with 509
+  embedding chunks and both SQLite integrity checks returning `ok`
+- Unit 4 is complete without changing package version `0.5.0a1`, stable tag
+  `v0.4.0`, or any private Markdown

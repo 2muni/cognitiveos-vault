@@ -1063,3 +1063,34 @@ Publication record:
   `eeab9f871fb7399b3f8d953280f57a9f1a8cc0434b0f74d0030c512784bf3b69`
 - source distribution SHA-256:
   `f574b76b73b33812cf8ad0c117959726f9bf6b16dd7e11c86356fc13abaedb32`
+
+### v0.5 Operational Freshness Boundary
+
+Decision:
+
+- define v0.5 as a read-only operational reliability phase rather than adding
+  another knowledge representation or generation feature
+- introduce a deterministic source manifest and one side-effect-free status
+  contract spanning validation, lexical state, and optional embedding state
+- add explicit atomic `full|incremental` lexical publication while retaining
+  `full` as the compatibility default
+- preserve the existing nine-tool MCP boundary during the first implementation
+  and expose unified status through Python and a dedicated CLI first
+- keep writeback, background indexing, model download, graph databases, local
+  LLM generation, migration, rename, and deletion outside v0.5
+
+Rationale:
+
+- Markdown remains authoritative, but operators currently lack one reliable
+  answer for whether every disposable index reflects the current source set
+- the lexical builder reparses all notes and can be made safer and faster by
+  validating a temporary database before atomic publication
+- source checksums and a deterministic vault manifest provide a portable
+  freshness identity without exposing note content, metadata values, absolute
+  paths, or timestamps
+- separating inspection from repair prevents a status command from silently
+  creating an index, loading a model, using the network, or mutating Markdown
+
+Canonical plan:
+
+- `System/docs/roadmap-v0.5.md`

@@ -263,6 +263,16 @@ The implementation-vs-roadmap status is maintained in:
 System/docs/roadmap-v0.1.md
 ```
 
+The approved next read-only reliability phase is maintained in:
+
+```text
+System/docs/roadmap-v0.5.md
+```
+
+It defines deterministic source manifests, unified side-effect-free status,
+and atomic full and incremental lexical index publication. It does not
+authorize writeback, background indexing, or automatic model loading.
+
 The approved design for future opt-in semantic retrieval is maintained in:
 
 ```text

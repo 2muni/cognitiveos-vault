@@ -2,11 +2,14 @@
 
 ## Current Status
 
-Status checked on 2026-07-11.
+Status checked on 2026-07-14.
 
-The v0.1 read-only MVP remains the published stable baseline. The v0.2 read-only
-retrieval implementation is complete on `main`; another-device and interactive
-client discovery checks are deferred.
+The v0.1 read-only MVP remains the historical architecture baseline. The latest
+published stable release is `v0.4.0`, which includes optional semantic
+retrieval, note-contract validation, alias-aware indexing, and graph-aware
+retrieval. The next approved implementation boundary is the read-only v0.5
+operational freshness plan in `System/docs/roadmap-v0.5.md`. Another-device and
+interactive client discovery checks remain deferred.
 
 Summary:
 
@@ -26,11 +29,13 @@ Summary:
 | VS Code Codex extension setup | Complete locally |
 | Writeback implementation | Deferred |
 | Writeback permission design | Complete |
-| Vector search | Deferred |
+| Optional vector search | Complete; disabled by default |
+| Unified derived-state freshness | Planned for v0.5 |
+| Incremental lexical indexing | Planned for v0.5 |
 | Graph database | Deferred |
 | Local LLM calls | Deferred |
 | Release checklist and tag policy | Complete |
-| Public GitHub Release `v0.1.0` | Complete |
+| Public GitHub Release `v0.4.0` | Complete |
 | Current Intel Mac environment | Complete |
 | Other-device and client UI verification | Deferred by user |
 
@@ -245,7 +250,11 @@ Current smoke verification:
 
 ## Current Known Limitations
 
-- No production embedding model adapter is enabled yet.
+- Production local embedding is opt-in and disabled by default.
+- Lexical indexing still performs a full rebuild; atomic incremental
+  publication is planned for v0.5.
+- Validation, lexical index, and embedding status are not yet combined into one
+  read-only freshness report.
 - No graph database yet.
 - No local LLM call path yet.
 - No writeback tools are enabled.

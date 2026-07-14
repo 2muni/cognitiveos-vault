@@ -3,7 +3,7 @@
 CognitiveOS is a Markdown-first, local-first, MCP-addressable PKM system for an Obsidian vault.
 
 The latest published stable release is the read-only semantic-retrieval release
-v0.3.0. The current source tree is `0.4.0a1` development:
+v0.3.0. The current source tree is the verified `0.4.0` release candidate:
 
 - scans Markdown notes
 - parses frontmatter, headings, wikilinks, and Markdown links
@@ -41,7 +41,7 @@ Implemented:
 
 Deferred:
 
-- approved-model benchmark runs on supported hardware
+- approved-model benchmark runs on additional supported hardware
 - graph database
 - local LLM calls
 - writeback tools
@@ -80,8 +80,7 @@ Read-only tools:
 - `propose_moc`
 - `build_context_pack`
 
-No MCP tool writes to Markdown. The `0.4.0a1` development tree remains
-read-only.
+No MCP tool writes to Markdown. The `0.4.0` release candidate remains read-only.
 
 ## Intel Mac Quick Start
 
@@ -375,6 +374,12 @@ The published v0.3.0 release notes are maintained in:
 System/docs/release-notes-v0.3.0.md
 ```
 
+The v0.4.0 release-candidate notes are maintained in:
+
+```text
+System/docs/release-notes-v0.4.0.md
+```
+
 The current v0.4 implementation and release gates are maintained in:
 
 ```text
@@ -384,7 +389,7 @@ System/docs/release-v0.4.md
 Current package version:
 
 ```text
-0.4.0a1
+0.4.0
 ```
 
 Published stable release:

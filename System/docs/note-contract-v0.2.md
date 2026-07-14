@@ -221,7 +221,7 @@ relationship representation:
 ```
 
 Frontmatter `links` and `sources` are also indexed as typed graph edges in
-`0.4.0a1` development. Each field must be a list of strings. Values may be raw
+`0.4.0`. Each field must be a list of strings. Values may be raw
 note ids, titles, aliases, vault-relative paths, wikilinks, Markdown links, or
 external URLs. Wikilink display text and Markdown link labels are removed from
 the derived target. Duplicate values within one field are collapsed
@@ -263,7 +263,7 @@ personal synthesis.
 
 ### Aliases
 
-Aliases remain optional. In `0.4.0a1` development they are included in lexical
+Aliases remain optional. In `0.4.0` they are included in lexical
 FTS candidate generation, receive explicit alias ranking signals, and resolve
 as backlink targets. Link suggestions also recognize an existing alias link so
 they do not propose the canonical note again. The canonical title remains the
@@ -280,7 +280,7 @@ permission.
 ### Visibility
 
 `visibility` remains `private | shared | public`, defaulting to `private`.
-It is classification metadata only. CognitiveOS v0.3 does not use it as an
+It is classification metadata only. CognitiveOS v0.4 does not use it as an
 authorization boundary, and the validator must state this in text help and JSON
 metadata.
 

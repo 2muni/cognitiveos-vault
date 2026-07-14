@@ -60,7 +60,7 @@ The parser derives these fields for indexing:
 
 Derived fields are not written back to Markdown in v0.1.
 
-`aliases` are optional alternate names. In `0.4.0a1` development they are
+`aliases` are optional alternate names. In `0.4.0` they are
 included in the derived lexical title payload and backlink target resolution;
 the canonical `title` remains the display identity.
 

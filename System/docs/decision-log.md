@@ -1016,3 +1016,27 @@ Rationale:
   release
 - validator warnings intentionally communicate authoring guidance and do not
   indicate parser, index, retrieval, or safety failures
+
+### v0.4.0 Final Release Preparation
+
+Decision:
+
+- promote package and MCP identity from `0.4.0a1` to `0.4.0` only after the
+  release-candidate baseline passes clean-worktree, dual-runtime, packaging,
+  forced-offline model, actual-vault, MCP, and private-checksum gates
+- preserve the alpha verification commit and artifact hashes as historical
+  evidence rather than rewriting them to stable-version values
+- prepare `System/docs/release-notes-v0.4.0.md` on a dedicated final-release
+  branch
+- require the exact stable-version commit to repeat every release gate before
+  an annotated tag, push, asset upload, or GitHub Release
+- stop before publication for explicit user approval
+
+Rationale:
+
+- version promotion changes package artifacts and therefore requires a fresh
+  exact-commit verification even when product code is otherwise unchanged
+- separating historical alpha evidence from stable artifact evidence keeps the
+  release audit reproducible
+- a publication pause prevents verification authority from being treated as
+  authorization to mutate remote `main`, tags, or release state

@@ -1,5 +1,7 @@
 """CognitiveOS read-only PKM index and retrieval core."""
 
+__version__ = "0.5.0a1"
+
 from .embeddings import (
     EmbeddingConfigurationError,
     EmbeddingError,
@@ -40,6 +42,16 @@ from .validation import (
     validate_note_file,
     validate_vault,
 )
+from .status import (
+    MANIFEST_VERSION,
+    STATUS_VERSION,
+    ManifestRecord,
+    VaultManifest,
+    VaultStatus,
+    build_vault_manifest,
+    inspect_vault_status,
+    manifest_from_records,
+)
 
 __all__ = [
     "EmbeddingConfigurationError",
@@ -59,6 +71,11 @@ __all__ = [
     "DEFAULT_MAX_CHARS",
     "DEFAULT_OVERLAP_CHARS",
     "VALIDATION_VERSION",
+    "MANIFEST_VERSION",
+    "STATUS_VERSION",
+    "ManifestRecord",
+    "VaultManifest",
+    "VaultStatus",
     "ValidationDiagnostic",
     "ValidationReport",
     "__version__",
@@ -75,6 +92,7 @@ __all__ = [
     "unpack_vector",
     "validate_note_file",
     "validate_vault",
+    "build_vault_manifest",
+    "inspect_vault_status",
+    "manifest_from_records",
 ]
-
-__version__ = "0.4.0"

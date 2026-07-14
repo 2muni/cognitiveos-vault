@@ -2,7 +2,8 @@
 
 ## Status
 
-Design approved on 2026-07-14. Implementation has not started.
+Design approved on 2026-07-14. Unit 1 is implemented on the v0.5 development
+branch; atomic lexical publication has not started.
 
 The latest published stable release remains `v0.4.0`. This plan defines the
 next read-only implementation boundary; it does not authorize writeback,
@@ -197,11 +198,28 @@ remain stable after a no-op incremental run.
 
 ### Unit 1: Manifest and Read-only Status
 
+Status: Complete.
+
 - implement one source-manifest function
 - implement status data models and state precedence
 - inspect validation, lexical, and embedding state without side effects
 - add deterministic text and JSON CLI output
 - add missing, healthy, stale, incompatible, incomplete, and corrupt fixtures
+
+Implementation checkpoint:
+
+- `vault-manifest-v0.1` hashes sorted vault-relative paths and source checksums
+- `vault-status-v0.1` combines validation, lexical, and embedding state
+- `cognitiveos-status` provides deterministic `text|json` output
+- status responses expose only counts, identities, digests, states, and safe
+  remediation commands
+- inspection creates no index, loads no model, uses no network, and returns no
+  absolute path or note content
+- legacy v0.4 lexical databases are checked by deriving their manifest from
+  stored path and checksum rows
+- five new tests cover deterministic manifests, side effects, healthy/stale/
+  incomplete coverage, corruption, incompatibility, and CLI output
+- all 80 automated tests pass
 
 ### Unit 2: Atomic Full Publication
 
@@ -228,7 +246,8 @@ remain stable after a no-op incremental run.
 
 ## Completion Gates
 
-- all existing 75 tests pass before adding new coverage
+- all existing 75 tests pass before adding new coverage; the current suite has
+  80 tests after Unit 1
 - manifest output is identical across repeated runs and path separator variants
 - status inspection creates and modifies no files
 - status never imports or loads the optional model runtime

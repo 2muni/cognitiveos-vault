@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import cognitiveos.cli as cognitiveos_cli
 import cognitiveos.runtime as cognitiveos_runtime
 from cognitiveos import __version__
-from cognitiveos.cli import main_embed, main_index, main_search, main_validate
+from cognitiveos.cli import main_embed, main_index, main_search, main_status, main_validate
 from cognitiveos.embedding_chunks import (
     CHUNKER_VERSION,
     chunk_note,
@@ -67,6 +67,12 @@ from cognitiveos.runtime import (
 from cognitiveos.safety import safe_resolve_inside
 from cognitiveos.sentence_transformers_adapter import SentenceTransformersProvider
 from cognitiveos.sentence_transformers_adapter import APPROVED_MULTILINGUAL_MODEL_ID
+from cognitiveos.status import (
+    MANIFEST_VERSION,
+    STATUS_VERSION,
+    build_vault_manifest,
+    inspect_vault_status,
+)
 from cognitiveos.validation import VALIDATION_VERSION, validate_note_file, validate_vault
 
 
@@ -2506,6 +2512,190 @@ status: seed
         self.assertEqual(
             pyproject["project"]["scripts"]["cognitiveos-validate"],
             "cognitiveos.cli:main_validate",
+        )
+
+
+class VaultStatusTests(CognitiveOSTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.embedding_db_path = self.root / ".pkm-index" / "embeddings.sqlite3"
+
+    def test_manifest_is_deterministic_and_content_sensitive(self) -> None:
+        second = self.write_note("zeta/한글.md", "# 한글\n\n내용")
+        self.write_note("Alpha.md", "# Alpha\n\nEvidence")
+
+        first = build_vault_manifest(self.root)
+        repeated = build_vault_manifest(self.root)
+
+        self.assertEqual(first.manifest_version, MANIFEST_VERSION)
+        self.assertEqual(first.digest, repeated.digest)
+        self.assertEqual([item.path for item in first.records], ["Alpha.md", "zeta/한글.md"])
+        second.write_text("# 한글\n\n변경된 내용", encoding="utf-8")
+        self.assertNotEqual(first.digest, build_vault_manifest(self.root).digest)
+
+    def test_missing_status_is_read_only_and_redacted(self) -> None:
+        self.write_note("note.md", "# Note\n\nEvidence")
+        before = sorted(path.relative_to(self.root).as_posix() for path in self.root.rglob("*"))
+
+        status = inspect_vault_status(self.root)
+
+        after = sorted(path.relative_to(self.root).as_posix() for path in self.root.rglob("*"))
+        payload = status.to_dict()
+        self.assertEqual(before, after)
+        self.assertFalse((self.root / ".pkm-index").exists())
+        self.assertEqual(status.status_version, STATUS_VERSION)
+        self.assertEqual(status.overall_state, "unavailable")
+        self.assertEqual(status.lexical["state"], "missing")
+        self.assertEqual(status.embedding["state"], "missing")
+        self.assertEqual(
+            payload["safety"],
+            {
+                "read_only": True,
+                "index_created": False,
+                "model_loaded": False,
+                "network_used": False,
+            },
+        )
+        self.assertNotIn(str(self.root), json.dumps(payload))
+
+    def test_healthy_stale_and_incomplete_coverage_states(self) -> None:
+        note = self.write_note("note.md", "# Note\n\nInitial evidence")
+        self.index()
+        EmbeddingIndexBuilder(
+            self.root,
+            DeterministicTestEmbeddingProvider(),
+            self.embedding_db_path,
+        ).build()
+        lexical_before = self.db_path.read_bytes()
+        embedding_before = self.embedding_db_path.read_bytes()
+
+        healthy = inspect_vault_status(
+            self.root,
+            db_path=self.db_path,
+            embedding_db_path=self.embedding_db_path,
+        )
+
+        self.assertEqual(healthy.overall_state, "healthy")
+        self.assertEqual(healthy.lexical["state"], "healthy")
+        self.assertEqual(healthy.embedding["state"], "healthy")
+        self.assertEqual(self.db_path.read_bytes(), lexical_before)
+        self.assertEqual(self.embedding_db_path.read_bytes(), embedding_before)
+
+        note.write_text("# Note\n\nChanged evidence", encoding="utf-8")
+        stale = inspect_vault_status(
+            self.root,
+            db_path=self.db_path,
+            embedding_db_path=self.embedding_db_path,
+        )
+        self.assertEqual(stale.overall_state, "degraded")
+        self.assertEqual(stale.lexical["state"], "stale")
+        self.assertEqual(stale.embedding["state"], "stale")
+
+        self.write_note("added.md", "# Added\n\nNew evidence")
+        incomplete = inspect_vault_status(
+            self.root,
+            db_path=self.db_path,
+            embedding_db_path=self.embedding_db_path,
+        )
+        self.assertEqual(incomplete.lexical["state"], "stale")
+        self.assertEqual(incomplete.embedding["state"], "incomplete")
+
+    def test_corrupt_and_incompatible_indexes_are_distinguished(self) -> None:
+        self.write_note("note.md", "# Note\n\nEvidence")
+        self.index()
+        EmbeddingIndexBuilder(
+            self.root,
+            DeterministicTestEmbeddingProvider(),
+            self.embedding_db_path,
+        ).build()
+        with closing(sqlite3.connect(self.embedding_db_path)) as conn:
+            conn.execute("UPDATE embedding_chunks SET provider_id = 'different'")
+            conn.commit()
+
+        incompatible = inspect_vault_status(
+            self.root,
+            db_path=self.db_path,
+            embedding_db_path=self.embedding_db_path,
+        )
+        self.assertEqual(incompatible.embedding["state"], "incompatible")
+
+        with closing(sqlite3.connect(self.embedding_db_path)) as conn:
+            conn.execute("UPDATE embedding_chunks SET provider_id = 'test', vector = ?", (b"broken",))
+            conn.commit()
+        embedding_corrupt = inspect_vault_status(
+            self.root,
+            db_path=self.db_path,
+            embedding_db_path=self.embedding_db_path,
+        )
+        self.assertEqual(embedding_corrupt.embedding["state"], "corrupt")
+
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute("DELETE FROM fts_notes")
+            conn.commit()
+        incomplete = inspect_vault_status(
+            self.root,
+            db_path=self.db_path,
+            embedding_db_path=self.embedding_db_path,
+        )
+        self.assertEqual(incomplete.lexical["state"], "incomplete")
+
+        self.db_path.write_bytes(b"not sqlite")
+        corrupt = inspect_vault_status(
+            self.root,
+            db_path=self.db_path,
+            embedding_db_path=self.embedding_db_path,
+        )
+        self.assertEqual(corrupt.overall_state, "unavailable")
+        self.assertEqual(corrupt.lexical["state"], "corrupt")
+
+    def test_status_cli_supports_deterministic_text_and_json(self) -> None:
+        self.write_note("note.md", "# Note\n\nEvidence")
+        self.index()
+
+        json_output = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cognitiveos-status",
+                str(self.root),
+                "--db",
+                str(self.db_path),
+                "--embedding-db",
+                str(self.embedding_db_path),
+                "--format",
+                "json",
+            ],
+        ), redirect_stdout(json_output):
+            self.assertEqual(main_status(), 0)
+        payload = json.loads(json_output.getvalue())
+        self.assertEqual(payload["status_version"], STATUS_VERSION)
+        self.assertEqual(payload["overall_state"], "healthy")
+        self.assertEqual(payload["embedding"]["state"], "missing")
+
+        text_output = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cognitiveos-status",
+                str(self.root),
+                "--db",
+                str(self.db_path),
+                "--format",
+                "text",
+            ],
+        ), redirect_stdout(text_output):
+            self.assertEqual(main_status(), 0)
+        self.assertIn("vault-status-v0.1", text_output.getvalue())
+        self.assertIn("overall=healthy", text_output.getvalue())
+        self.assertEqual(
+            tomllib.loads(
+                (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
+                    encoding="utf-8"
+                )
+            )["project"]["scripts"]["cognitiveos-status"],
+            "cognitiveos.cli:main_status",
         )
 
 

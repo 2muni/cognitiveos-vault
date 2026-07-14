@@ -1094,3 +1094,16 @@ Rationale:
 Canonical plan:
 
 - `System/docs/roadmap-v0.5.md`
+
+Implementation checkpoint:
+
+- add `vault-manifest-v0.1` and `vault-status-v0.1`
+- expose `cognitiveos-status` as the seventh development CLI while preserving
+  the published v0.4.0 six-CLI artifact record
+- classify lexical and optional embedding state without opening either DB in
+  write mode
+- keep a missing embedding index compatible with a healthy lexical-only system
+- return safe explicit rebuild commands for unhealthy derived state without
+  exposing absolute paths or private note metadata
+- retain exactly nine read-only MCP tools and leave writeback disabled
+- pass 80 automated tests after adding five status and manifest tests

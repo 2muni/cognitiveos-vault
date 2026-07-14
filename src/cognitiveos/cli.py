@@ -12,6 +12,7 @@ from .embedding_index import SemanticUnavailableError
 from .retrieval import RetrievalService, search_result_to_dict
 from .sentence_transformers_adapter import create_sentence_transformers_provider
 from .runtime import build_runtime_service
+from .status import VaultStatus, inspect_vault_status
 from .validation import ValidationDiagnostic, ValidationReport, validate_vault
 
 
@@ -91,6 +92,43 @@ def main_validate() -> int:
         parser.error(str(exc))
     output_validation_report(report, args.format)
     return report.exit_code
+
+
+def main_status() -> int:
+    parser = argparse.ArgumentParser(
+        description="Inspect CognitiveOS validation and derived state without modifying it"
+    )
+    parser.add_argument("vault_root", nargs="?", default=".", help="Vault root path")
+    parser.add_argument("--db", default=None, help="Lexical SQLite DB path")
+    parser.add_argument("--embedding-db", default=None, help="Embedding SQLite DB path")
+    parser.add_argument("--scope", choices=("all", "user"), default="user")
+    parser.add_argument("--format", choices=("text", "json"), default="text")
+    args = parser.parse_args()
+    try:
+        status = inspect_vault_status(
+            args.vault_root,
+            db_path=args.db,
+            embedding_db_path=args.embedding_db,
+            scope=args.scope,
+        )
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+    output_vault_status(status, args.format)
+    return 0 if status.overall_state == "healthy" else 1
+
+
+def output_vault_status(status: VaultStatus, output_format: str) -> None:
+    payload = status.to_dict()
+    if output_format == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    print(f"CognitiveOS vault status {status.status_version}")
+    print(
+        f"overall={status.overall_state} files={status.vault['markdown_count']} "
+        f"validation={status.validation['state']} lexical={status.lexical['state']} "
+        f"embedding={status.embedding['state']}"
+    )
+    print(f"manifest={status.vault['digest']}")
 
 
 def output_validation_report(report: ValidationReport, output_format: str) -> None:

@@ -278,11 +278,25 @@ Implementation checkpoint:
 
 ### Unit 4: Stabilization
 
+Status: In progress.
+
 - run both modes against the actual vault
 - record full, changed, and no-op timings without exposing note paths or content
 - verify Markdown checksums before and after every build
 - verify lexical and embedding integrity plus required semantic search
 - repeat clean-worktree, packaging, MCP, and release gates
+
+Current checkpoint:
+
+- actual-vault full rebuild: 58 notes in 1.21 seconds
+- actual-vault changed incremental build: one added tracked System document and
+  58 reused notes in 0.96 seconds
+- immediate no-op incremental build: 59 reused notes in 0.42 seconds with
+  unchanged database SHA-256, modification time, size, and generation
+- Python 3.14 default and Python 3.12 local-embedding environments each pass 92
+  tests with `ResourceWarning` promoted to an error
+- clean-worktree packaging, forced-offline semantic retrieval, final checksum,
+  and exact-commit verification remain pending
 
 ## Completion Gates
 

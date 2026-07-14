@@ -2,8 +2,8 @@
 
 ## Status
 
-Design approved on 2026-07-14. Units 1 and 2 are implemented on the v0.5
-development branch; incremental lexical publication has not started.
+Design approved on 2026-07-14. Units 1 through 3 are implemented on the v0.5
+development branches; stabilization remains pending.
 
 The latest published stable release remains `v0.4.0`. This plan defines the
 next read-only implementation boundary; it does not authorize writeback,
@@ -251,10 +251,30 @@ Implementation checkpoint:
 
 ### Unit 3: Incremental Lexical Publication
 
+Status: Complete.
+
 - classify added, changed, removed, and unchanged notes by path and checksum
 - reuse unchanged note, frontmatter, heading, edge, and FTS rows
 - prove equivalence with a clean full rebuild
 - invalidate graph caches only after a changed publication
+
+Implementation checkpoint:
+
+- incremental mode requires a compatible completed v0.5 lexical baseline and
+  directs incompatible or missing databases to an explicit full rebuild
+- current and indexed path/checksum manifests deterministically classify added,
+  updated, removed, and reused notes
+- only added and updated paths are parsed; removed paths cascade out of note,
+  frontmatter, heading, link, and FTS state
+- changed builds copy the healthy baseline, append a new run generation,
+  validate the complete manifest and FTS coverage, and atomically publish
+- no-op builds parse zero notes, append no run, publish no file, and preserve
+  both the database bytes and graph-cache generation
+- clean full and incremental builds have equivalent observable note,
+  frontmatter, heading, link, and FTS rows
+- parser, validator, source-race, WAL, rollback-journal, and publication safety
+  paths preserve the previous active database
+- all 92 automated tests pass with `ResourceWarning` promoted to an error
 
 ### Unit 4: Stabilization
 
@@ -267,7 +287,7 @@ Implementation checkpoint:
 ## Completion Gates
 
 - all existing 75 tests pass before adding new coverage; the current suite has
-  85 tests after Units 1 and 2
+  92 tests after Units 1 through 3
 - manifest output is identical across repeated runs and path separator variants
 - status inspection creates and modifies no files
 - status never imports or loads the optional model runtime

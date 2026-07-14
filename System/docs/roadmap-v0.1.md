@@ -252,10 +252,10 @@ Current smoke verification:
 ## Current Known Limitations
 
 - Production local embedding is opt-in and disabled by default.
-- Lexical full rebuilding publishes atomically; checksum-based incremental
-  publication is planned for v0.5 Unit 3.
-- Unified read-only freshness reporting is implemented, but lexical source
-  manifests are not persisted in run metadata until v0.5 Unit 2.
+- Lexical full and checksum-based incremental rebuilding publish atomically in
+  the v0.5 development tree; `full` remains the compatibility default.
+- Unified read-only freshness reporting and persisted lexical source manifests
+  are implemented in the v0.5 development tree.
 - No graph database yet.
 - No local LLM call path yet.
 - No writeback tools are enabled.

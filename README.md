@@ -16,7 +16,7 @@ graph-aware retrieval release v0.4.0:
 Implemented:
 
 - Python indexer
-- atomically published full lexical index with manifest and build statistics
+- atomically published full and incremental lexical indexes with manifests and build statistics
 - SQLite/FTS search
 - PKM-aware search reranking
 - read-only MCP stdio server
@@ -163,7 +163,7 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 85 tests
+Ran 92 tests
 OK
 ```
 
@@ -214,6 +214,19 @@ the active index is replaced atomically. JSON output includes the source
 manifest, build generation, and added/updated/removed/reused counts. A parser,
 validation, source-race, or publication failure leaves the previous active
 database unchanged.
+
+After one compatible full build, explicitly update only added or
+checksum-changed notes and remove deleted paths with:
+
+```bash
+PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_index; main_index()" --mode incremental --format json
+```
+
+Incremental publication copies the last healthy database to a temporary sibling,
+reuses unchanged note and FTS rows, validates the complete result, and replaces
+the active database atomically. A no-op run returns `published=false`, reparses
+zero notes, and leaves the database file and graph-cache generation unchanged.
+The compatibility default remains `--mode full`.
 
 The generated database is stored under:
 

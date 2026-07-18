@@ -126,3 +126,21 @@ The `v0.5.0` tag must point to the exact merged commit that passes the final
 dual-runtime, packaging, MCP, actual-vault, offline-model, and checksum gates.
 Historical tags must not be moved. Release assets must be built from that exact
 tree and verified again after download from GitHub.
+
+## Publication Record
+
+`v0.5.0` was published on 2026-07-18. The annotated tag peels to exact verified
+commit `bb53f508bd16e66a26a23e0c852cbcb5349b4a05`. The GitHub Release is public,
+not a draft, and not a prerelease:
+
+```text
+https://github.com/2muni/cognitiveos-vault/releases/tag/v0.5.0
+```
+
+The published assets were downloaded again and compared byte-for-byte with the
+exact-main build outputs:
+
+```text
+77eafcf89cd1af3a6878187fd7cef2f2b106c35ff1baa4e3bdc7452d8ce59ace  cognitiveos-0.5.0-py3-none-any.whl
+8cc5b89a65db467e7ad4e23629a5fe3381ef88d8c47557e581552d158ea556ec  cognitiveos-0.5.0.tar.gz
+```

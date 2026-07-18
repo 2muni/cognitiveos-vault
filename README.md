@@ -139,6 +139,13 @@ shasum -a 256 cognitiveos-0.5.0-py3-none-any.whl
 python -m pip install cognitiveos-0.5.0-py3-none-any.whl
 ```
 
+Expected release-asset digests:
+
+```text
+77eafcf89cd1af3a6878187fd7cef2f2b106c35ff1baa4e3bdc7452d8ce59ace  cognitiveos-0.5.0-py3-none-any.whl
+8cc5b89a65db467e7ad4e23629a5fe3381ef88d8c47557e581552d158ea556ec  cognitiveos-0.5.0.tar.gz
+```
+
 The wheel exposes `cognitiveos-index`, `cognitiveos-search`,
 `cognitiveos-mcp`, `cognitiveos-embed`, `cognitiveos-evaluate-embeddings`, and
 `cognitiveos-validate`, and `cognitiveos-status`.

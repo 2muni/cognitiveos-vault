@@ -109,7 +109,20 @@ Detailed release evidence is recorded in `System/docs/release-v0.5.md`.
 
 ## Publication Record
 
-The annotated `v0.5.0` tag points to the exact source commit that passed the
-final dual-runtime, packaging, actual-vault, MCP, offline-model, and private
-Markdown checksum gates. The GitHub Release contains the universal wheel and
-source distribution built from that tree. Historical tags must not be moved.
+The annotated `v0.5.0` tag points to exact source commit
+`bb53f508bd16e66a26a23e0c852cbcb5349b4a05`, which passed the final
+dual-runtime, packaging, actual-vault, MCP, offline-model, and private Markdown
+checksum gates. The public GitHub Release is:
+
+```text
+https://github.com/2muni/cognitiveos-vault/releases/tag/v0.5.0
+```
+
+Published assets were downloaded again and matched the exact build outputs:
+
+```text
+77eafcf89cd1af3a6878187fd7cef2f2b106c35ff1baa4e3bdc7452d8ce59ace  cognitiveos-0.5.0-py3-none-any.whl
+8cc5b89a65db467e7ad4e23629a5fe3381ef88d8c47557e581552d158ea556ec  cognitiveos-0.5.0.tar.gz
+```
+
+Historical tags must not be moved.

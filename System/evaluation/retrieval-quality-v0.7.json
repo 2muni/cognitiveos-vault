@@ -1,0 +1,17 @@
+{
+  "version": "retrieval-quality-v0.7",
+  "cases": [
+    {"id": "ko-alias-local", "query": "오프라인 지식 규칙", "language": "ko", "signals": ["aliases"], "relevant_note_ids": ["rq_local_policy"], "relevant_paths": ["concepts/local-policy.md"]},
+    {"id": "en-title-mcp", "query": "Read-only MCP Boundary", "language": "en", "signals": ["title"], "relevant_note_ids": ["rq_mcp_boundary"], "relevant_paths": ["sources/mcp-boundary.md"]},
+    {"id": "mixed-heading-roadmap", "query": "retrieval 품질 release checklist", "language": "mixed", "signals": ["headings"], "relevant_note_ids": ["rq_quality_roadmap"], "relevant_paths": ["projects/quality-roadmap.md"]},
+    {"id": "ko-typed-source", "query": "근거 출처 연결", "language": "ko", "signals": ["typed_links"], "relevant_note_ids": ["rq_evidence_map"], "relevant_paths": ["maps/evidence-map.md"]},
+    {"id": "en-backlink-boundary", "query": "protocol boundary evidence", "language": "en", "signals": ["backlinks", "graph_evidence"], "relevant_note_ids": ["rq_mcp_boundary"], "relevant_paths": ["sources/mcp-boundary.md"]},
+    {"id": "mixed-alias-glossary", "query": "alias 별칭 glossary", "language": "mixed", "signals": ["aliases"], "relevant_note_ids": ["rq_alias_glossary"], "relevant_paths": ["sources/alias-glossary.md"]},
+    {"id": "ko-graph-policy", "query": "로컬 정책 근거 그래프", "language": "ko", "signals": ["graph_evidence"], "relevant_note_ids": ["rq_evidence_map"], "relevant_paths": ["maps/evidence-map.md"]},
+    {"id": "en-typed-roadmap", "query": "evaluation source links", "language": "en", "signals": ["typed_links"], "relevant_note_ids": ["rq_quality_roadmap"], "relevant_paths": ["projects/quality-roadmap.md"]},
+    {"id": "mixed-backlink-review", "query": "review 큐 backlink", "language": "mixed", "signals": ["backlinks"], "relevant_note_ids": ["rq_review_queue"], "relevant_paths": ["projects/review-queue.md"]},
+    {"id": "ko-recency-review", "query": "최근 검토 큐", "language": "ko", "signals": ["recency"], "relevant_note_ids": ["rq_review_queue"], "relevant_paths": ["projects/review-queue.md"]},
+    {"id": "en-heading-policy", "query": "durable local policy", "language": "en", "signals": ["headings"], "relevant_note_ids": ["rq_local_policy"], "relevant_paths": ["concepts/local-policy.md"]},
+    {"id": "mixed-title-roadmap", "query": "품질 Quality Roadmap", "language": "mixed", "signals": ["title"], "relevant_note_ids": ["rq_quality_roadmap"], "relevant_paths": ["projects/quality-roadmap.md"]}
+  ]
+}

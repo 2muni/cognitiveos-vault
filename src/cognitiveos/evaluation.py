@@ -7,7 +7,7 @@ import statistics
 import tempfile
 import time
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Sequence
 
 from .embedding_index import EmbeddingIndexBuilder
@@ -22,6 +22,18 @@ from .sentence_transformers_adapter import (
 
 
 EVALUATION_VERSION = "multilingual-retrieval-v0.1"
+RETRIEVAL_QUALITY_FIXTURE_VERSION = "retrieval-quality-v0.7"
+RETRIEVAL_QUALITY_SIGNALS = frozenset(
+    {
+        "aliases",
+        "backlinks",
+        "graph_evidence",
+        "headings",
+        "recency",
+        "title",
+        "typed_links",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -29,16 +41,28 @@ class EvaluationCase:
     query: str
     relevant_note_ids: tuple[str, ...]
     language: str
+    case_id: str | None = None
+    signals: tuple[str, ...] = ()
+    relevant_paths: tuple[str, ...] = ()
+    fixture_version: str = EVALUATION_VERSION
 
 
 def load_evaluation_cases(path: str | Path) -> list[EvaluationCase]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or payload.get("version") != EVALUATION_VERSION:
-        raise ValueError(f"evaluation fixture version must be {EVALUATION_VERSION}")
+    if not isinstance(payload, dict) or payload.get("version") not in {
+        EVALUATION_VERSION,
+        RETRIEVAL_QUALITY_FIXTURE_VERSION,
+    }:
+        raise ValueError(
+            "evaluation fixture version must be "
+            f"{EVALUATION_VERSION} or {RETRIEVAL_QUALITY_FIXTURE_VERSION}"
+        )
+    fixture_version = payload["version"]
     raw_cases = payload.get("cases")
     if not isinstance(raw_cases, list) or not raw_cases:
         raise ValueError("evaluation fixture must contain a non-empty cases list")
     cases: list[EvaluationCase] = []
+    seen_case_ids: set[str] = set()
     for index, item in enumerate(raw_cases):
         if not isinstance(item, dict):
             raise ValueError(f"cases[{index}] must be an object")
@@ -55,8 +79,65 @@ def load_evaluation_cases(path: str | Path) -> list[EvaluationCase]:
             or any(not isinstance(note_id, str) or not note_id.strip() for note_id in relevant)
         ):
             raise ValueError(f"cases[{index}].relevant_note_ids must contain note ids")
-        cases.append(EvaluationCase(query.strip(), tuple(relevant), language.strip()))
+        if fixture_version == RETRIEVAL_QUALITY_FIXTURE_VERSION:
+            case_id = item.get("id")
+            signals = item.get("signals")
+            relevant_paths = item.get("relevant_paths")
+            if not isinstance(case_id, str) or not case_id.strip():
+                raise ValueError(f"cases[{index}].id must be a non-empty string")
+            case_id = case_id.strip()
+            if case_id in seen_case_ids:
+                raise ValueError(f"cases[{index}].id duplicates {case_id!r}")
+            seen_case_ids.add(case_id)
+            if not isinstance(signals, list) or not signals or any(
+                not isinstance(signal, str) or not signal.strip() for signal in signals
+            ):
+                raise ValueError(f"cases[{index}].signals must contain known signals")
+            normalized_signals = tuple(signal.strip() for signal in signals)
+            unknown_signals = sorted(set(normalized_signals).difference(RETRIEVAL_QUALITY_SIGNALS))
+            if unknown_signals:
+                raise ValueError(f"cases[{index}].signals contains unknown signals: {unknown_signals}")
+            if not isinstance(relevant_paths, list) or not relevant_paths:
+                raise ValueError(f"cases[{index}].relevant_paths must contain vault-relative paths")
+            normalized_paths = tuple(
+                validate_fixture_path(candidate, f"cases[{index}].relevant_paths")
+                for candidate in relevant_paths
+            )
+        else:
+            case_id = None
+            normalized_signals = ()
+            normalized_paths = ()
+        cases.append(
+            EvaluationCase(
+                query.strip(),
+                tuple(relevant),
+                language.strip(),
+                case_id,
+                normalized_signals,
+                normalized_paths,
+                fixture_version,
+            )
+        )
     return cases
+
+
+def validate_fixture_path(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must contain vault-relative paths")
+    path = value.strip()
+    normalized = PurePosixPath(path)
+    if (
+        path.startswith(("/", "\\"))
+        or "\\" in path
+        or normalized.is_absolute()
+        or normalized.as_posix() != path
+        or not normalized.parts
+        or any(part in {"", ".", ".."} for part in normalized.parts)
+        or ":" in normalized.parts[0]
+        or normalized.suffix != ".md"
+    ):
+        raise ValueError(f"{field} must contain vault-relative paths")
+    return path
 
 
 def evaluate_retrieval(
@@ -113,9 +194,12 @@ def evaluate_retrieval(
         hybrid_rankings.append(hybrid_ids)
         case_results.append(
             {
+                **({"id": case.case_id} if case.case_id is not None else {}),
                 "query": case.query,
                 "language": case.language,
+                **({"signals": list(case.signals)} if case.signals else {}),
                 "relevant_note_ids": list(case.relevant_note_ids),
+                **({"relevant_paths": list(case.relevant_paths)} if case.relevant_paths else {}),
                 "lexical_note_ids": lexical_ids,
                 "hybrid_note_ids": hybrid_ids,
             }
@@ -133,7 +217,7 @@ def evaluate_retrieval(
     }
     identity = provider_identity(provider)
     return {
-        "evaluation_version": EVALUATION_VERSION,
+        "evaluation_version": cases[0].fixture_version,
         "model": asdict(identity),
         "runtime": {
             "python": platform.python_version(),
@@ -163,6 +247,49 @@ def evaluate_retrieval(
         },
         "gates": {**gates, "all_passed": all(gates.values())},
         "cases": case_results,
+        **(
+            {
+                "breakdowns": evaluation_breakdowns(
+                    cases,
+                    lexical_rankings,
+                    hybrid_rankings,
+                    k,
+                )
+            }
+            if cases[0].fixture_version == RETRIEVAL_QUALITY_FIXTURE_VERSION
+            else {}
+        ),
+    }
+
+
+def evaluation_breakdowns(
+    cases: Sequence[EvaluationCase],
+    lexical_rankings: Sequence[Sequence[str]],
+    hybrid_rankings: Sequence[Sequence[str]],
+    k: int,
+) -> dict[str, dict[str, dict[str, float | int]]]:
+    """Return sorted, timing-free quality metrics for the v0.7 frozen fixture."""
+    groups: dict[str, dict[str, list[int]]] = {"language": {}, "signal": {}}
+    for index, case in enumerate(cases):
+        groups["language"].setdefault(case.language, []).append(index)
+        for signal in case.signals:
+            groups["signal"].setdefault(signal, []).append(index)
+
+    def metrics(indices: Sequence[int]) -> dict[str, float | int]:
+        relevant = [cases[index].relevant_note_ids for index in indices]
+        lexical = [lexical_rankings[index] for index in indices]
+        hybrid = [hybrid_rankings[index] for index in indices]
+        return {
+            "case_count": len(indices),
+            f"lexical_recall_at_{k}": recall_at_k(lexical, relevant, k),
+            f"hybrid_recall_at_{k}": recall_at_k(hybrid, relevant, k),
+            "lexical_mrr": mean_reciprocal_rank(lexical, relevant),
+            "hybrid_mrr": mean_reciprocal_rank(hybrid, relevant),
+        }
+
+    return {
+        group_name: {key: metrics(indices) for key, indices in sorted(group.items())}
+        for group_name, group in groups.items()
     }
 
 

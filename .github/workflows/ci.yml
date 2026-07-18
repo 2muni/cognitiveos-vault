@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  default-runtime:
+    name: Default runtime / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.14"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install '.[dev,mcp]'
+      - run: python -W error -m unittest discover -s tests -v
+
+  local-embedding-runtime:
+    name: Local embeddings / Python 3.12 / offline
+    runs-on: ubuntu-latest
+    env:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      COGNITIVEOS_SEMANTIC_MODE: "off"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install '.[dev,mcp,local-embeddings]'
+      - run: python -W error -m unittest discover -s tests -v
+
+  release-gates:
+    name: Reproducible release gates
+    runs-on: ubuntu-latest
+    env:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      COGNITIVEOS_SEMANTIC_MODE: "off"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: python -m pip install '.[dev,mcp]'
+      - run: >-
+          python scripts/verify_release.py
+          --format text
+          --report dist/release-gates/report.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cognitiveos-release-gates
+          path: dist/release-gates/
+          if-no-files-found: error
+          retention-days: 14

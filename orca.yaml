@@ -1,0 +1,13 @@
+scripts:
+  setup: bash ./scripts/setup-orca-worktree.sh
+
+defaultTabs:
+  - title: Tests
+    color: "#4f86f7"
+    command: ./.venv/bin/python -m unittest discover -s tests -v
+  - title: Vault status
+    color: "#35a36f"
+    command: ./.venv/bin/cognitiveos-status . --format text
+  - title: Git status
+    color: "#8b6fc0"
+    command: git status --short --branch

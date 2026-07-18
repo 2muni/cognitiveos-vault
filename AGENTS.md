@@ -14,6 +14,25 @@ Select the GPT-5.6 model tier in the Codex client for each task. The project con
 
 At the end of every completed task, report the next recommended task and its recommended tier.
 
+## Orca Worktree Workflow
+
+Future implementation is worktree-native. The primary `main` checkout is the
+clean integration baseline, not a general development workspace.
+
+- Create each task in Orca from the latest `origin/main`.
+- Use one objective per worktree and a `codex/<lane>-<topic>` branch.
+- Use the lane, model tier, task brief, and completion gates defined in
+  `System/docs/orca-worktree-operating-plan.md`.
+- Never share `.venv*`, `.pkm-index`, SQLite files, build output, or private
+  Markdown between worktrees.
+- Use draft pull requests for review and merge only after the branch is current
+  with `main` and all required gates pass.
+- Do not modify `main` directly except for an explicitly approved integration
+  update or emergency hotfix.
+- Review `orca.yaml` before trusting its hooks. The repository setup hook may
+  create a local development environment, but it must not build indexes,
+  download models, synchronize notes, or enable writeback.
+
 ## Vault Safety
 
 - Prefer read-only analysis unless the user explicitly asks for file changes.

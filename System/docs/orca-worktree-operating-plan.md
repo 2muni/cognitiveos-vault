@@ -1,0 +1,292 @@
+# CognitiveOS Goal and Orca Worktree Operating Plan
+
+## Status
+
+Canonical operating plan adopted on 2026-07-18 after publication of
+`v0.5.0`. This document is the starting point for future work performed in
+Orca IDE. Historical release plans remain evidence of completed work; this
+document owns the current objective, future sequence, worktree taxonomy, and
+integration gates.
+
+The primary `main` checkout is the trusted integration baseline. Except for an
+explicitly approved hotfix or integration update, implementation work must be
+performed in a dedicated Orca worktree created from the current
+`origin/main`.
+
+## Final Goal
+
+CognitiveOS will be a local-first personal knowledge operating system in which:
+
+- Markdown notes remain the durable, portable source of truth
+- YAML frontmatter and internal links form an explicit machine-readable contract
+- lexical, graph, embedding, summary, and agent state remain disposable and
+  rebuildable
+- retrieval and generated answers cite vault-relative evidence
+- capture, synthesis, and maintenance workflows help knowledge compound over
+  time without silently rewriting the user's meaning
+- optional semantic retrieval works offline and falls back safely to lexical
+  retrieval
+- every write is proposed, previewed, explicitly approved, checksum-verified,
+  atomically applied, and auditable
+- the system remains usable across supported devices without making a cloud
+  database, a model provider, or an IDE the source of truth
+
+The finite `v1.0` completion boundary is a stable read-and-approved-write
+system with reproducible setup, observable derived-state freshness, grounded
+retrieval, safe authoring assistance, and a documented cross-device recovery
+path. Autonomous destructive changes, background model downloads, and a graph
+database are not required for `v1.0`.
+
+## Completed Baseline
+
+| Release | Completed boundary |
+| --- | --- |
+| `v0.1.0` | Markdown ingestion, SQLite/FTS, read-only MCP, retrieval safety |
+| `v0.2.0` | token-budgeted context packs and deterministic text/JSON contracts |
+| `v0.3.0` | optional local embeddings, hybrid retrieval, pinned model evaluation |
+| `v0.4.0` | note contracts, durable templates, aliases, backlinks, typed graph edges |
+| `v0.5.0` | deterministic manifests, unified status, atomic full/incremental indexes |
+
+Current invariant:
+
+- package and MCP version: `0.5.0`
+- latest stable release: `v0.5.0`
+- MCP surface: exactly nine read-only tools
+- default semantic runtime: `off`
+- writeback: disabled
+- Markdown and frontmatter: never changed by indexing, status, or retrieval
+- private note synchronization: separate from Git
+
+## Roadmap to v1.0
+
+### Phase A: v0.6 Worktree-native Operations
+
+Purpose: make parallel development reproducible before adding a write surface.
+
+Planned outcomes:
+
+- Orca worktree setup and task taxonomy adopted by all implementation work
+- continuous integration for supported default and local-embedding runtimes
+- automated package, MCP-surface, privacy, and deterministic-build gates
+- a single release-candidate checklist generated from executable checks
+- fresh-clone and public-wheel consumer smoke tests that can run without vault
+  content
+- explicit policy for which local runtime and derived artifacts may be shared
+  across worktrees
+
+Exit gate: two independent clean worktrees produce the same test and package
+results without sharing a SQLite index, private note, model cache path, or
+Python virtual environment.
+
+### Phase B: v0.7 Retrieval Quality and Knowledge Operations
+
+Purpose: improve usefulness using measured, grounded behavior rather than more
+storage layers.
+
+Planned outcomes:
+
+- larger privacy-safe Korean, English, and mixed-language evaluation fixtures
+- evaluation of aliases, backlinks, typed links, recency, and graph signals
+- query diagnostics that explain lexical, semantic, and reranking contributions
+- stable workflows for capture, durable-note promotion, source synthesis, MOC
+  maintenance, and review queues
+- evidence-density and context-pack quality gates
+
+Exit gate: retrieval and context changes demonstrate non-regression on frozen
+fixtures, preserve deterministic output where promised, and never require the
+optional model for the default path.
+
+### Phase C: v0.8 Approval-gated Writeback Foundation
+
+Purpose: introduce the smallest useful write capability without weakening the
+Markdown source-of-truth boundary.
+
+Required sequence:
+
+1. threat model and permission review
+2. proposal schema and exact diff preview
+3. explicit approval token bound to one proposal
+4. checksum revalidation immediately before apply
+5. atomic single-file apply and append-only derived audit record
+6. recovery, conflict, and stale-proposal tests
+7. one write tool at a time, beginning with the least destructive candidate
+
+Initial candidates remain `create_draft_note`, `update_properties`,
+`append_to_daily`, and `apply_patch_to_note`. Multi-file migrations, bulk
+normalization, rename, archive, and delete remain outside this phase.
+
+Exit gate: an expired, altered, unapproved, out-of-vault, or checksum-mismatched
+proposal cannot write; an approved valid proposal produces exactly the
+previewed change and an auditable result.
+
+### Phase D: v0.9 Portability and Recovery
+
+Purpose: prove that CognitiveOS is an operating system for knowledge rather
+than a configuration tied to one machine.
+
+Planned outcomes:
+
+- macOS and Windows bootstrap verification on supported Python combinations
+- private-note sync and Git sync recovery runbook
+- rebuild-from-Markdown disaster recovery
+- client/MCP discovery diagnostics separated from server health
+- upgrade and rollback checks across stable releases
+
+Exit gate: a fresh supported device can restore private Markdown separately,
+install a released package, rebuild disposable state, and verify the same
+read/write safety contracts.
+
+### Phase E: v1.0 Stabilization
+
+Purpose: freeze the public contracts that define the useful, safe system.
+
+Release gates:
+
+- all v0.6-v0.9 exit gates complete
+- no autonomous destructive operation
+- read-only operation remains fully functional with semantic runtime disabled
+- approved writeback is opt-in and auditable
+- package, source archive, MCP schemas, note contracts, and operator docs agree
+- actual-vault validation preserves private Markdown checksums
+- clean-worktree and public-asset consumer verification pass
+
+## Orca Worktree Taxonomy
+
+Create each task from the latest `origin/main`. Use one worktree, one branch,
+and one primary objective per task.
+
+| Lane | Branch pattern | Typical work | Model tier |
+| --- | --- | --- | --- |
+| Documentation | `codex/docs-<topic>` | guides, examples, status records | `Terra / light` |
+| Maintenance | `codex/fix-<topic>` | narrow defects, packaging, compatibility | `Sol / light` |
+| Feature | `codex/feature-<topic>` | normal service or CLI capability | `Sol / medium` |
+| Retrieval | `codex/retrieval-<topic>` | indexing, ranking, context, evaluation | `Sol / medium` |
+| Schema | `codex/schema-<topic>` | note/index/MCP contract evolution | `Sol / high` |
+| Security | `codex/security-<topic>` | permission and writeback boundaries | `Sol / high` or `Sol / ultra` |
+| Release | `codex/release-<version>` | stabilization, packaging, publication | `Sol / medium` |
+
+Task names should describe the outcome, not the agent or session. Examples:
+
+- `codex/feature-ci-release-gates`
+- `codex/retrieval-context-evaluation`
+- `codex/security-writeback-proposals`
+- `codex/release-v0.6.0`
+
+## Worktree Lifecycle in Orca
+
+1. Refresh the primary checkout and confirm `main == origin/main` and clean.
+2. Create a new Orca worktree from `origin/main` with a name matching the lane.
+3. Review and trust `orca.yaml` only when its diff is understood.
+4. Let the setup hook create the worktree-local `.venv` and install
+   `.[dev,mcp]`.
+5. Put the objective, scope, excluded work, completion gates, and model tier in
+   the worktree task description before implementation.
+6. Inspect the current contracts and tests before editing.
+7. Implement the smallest independently reviewable unit.
+8. Run focused checks, then the lane's required regression gates.
+9. Review the Orca diff and checkpoint the verified state.
+10. Commit intentionally, push the task branch, and open a draft pull request.
+11. Resolve review and CI in the same worktree.
+12. Merge only when the branch is current with `main` and all gates pass.
+13. Delete or archive the completed worktree; keep the remote branch only when
+    repository policy requires it.
+
+For competing implementations, create separate disposable worktrees and select
+one winner. Do not merge two alternatives merely because both exist.
+
+## Isolation and Concurrency Rules
+
+- Never edit implementation directly in the primary `main` checkout.
+- Never share `.venv`, `.venv-*`, `.pkm-index`, SQLite sidecars, test output,
+  or build directories between worktrees.
+- Never copy private Markdown into a temporary or remote worktree.
+- Model caches may be read from the host only after the task explicitly permits
+  local-model evaluation; do not commit or expose their paths.
+- Only one active worktree may perform actual-vault embedding rebuilds or final
+  release publication at a time.
+- Only one active worktree may own a given schema or canonical roadmap file.
+- Parallel worktrees must have disjoint primary files or an explicit dependency
+  order.
+- A dependent task starts from the merged predecessor, not from an unpublished
+  sibling branch, unless a temporary stacked branch is explicitly documented.
+- Worktree setup must not build indexes, download models, contact model APIs,
+  synchronize notes, or enable writeback.
+
+## Required Task Brief
+
+Every Orca task should begin with this compact contract:
+
+```text
+Objective:
+In scope:
+Out of scope:
+Source contracts to preserve:
+Files expected to change:
+Tests and completion gates:
+Privacy/writeback impact:
+Dependencies:
+Recommended model tier:
+```
+
+If the objective or safety boundary changes materially, update the brief before
+continuing. Record important intermediate decisions as worktree checkpoints;
+durable architecture and release decisions belong in `System/docs`.
+
+## Lane-specific Completion Gates
+
+### Documentation
+
+- links, versions, tool counts, and commands match current implementation
+- `git diff --check` passes
+- no private path, note content, credential, or mutable local count is used as
+  a universal requirement
+
+### Code and Retrieval
+
+- focused tests and the complete automated suite pass
+- deterministic contracts are repeated with identical input
+- path traversal and out-of-vault access remain rejected
+- default lexical-only behavior remains available
+- source Markdown checksums are unchanged
+
+### Schema and Security
+
+- design and compatibility notes precede implementation
+- malformed, stale, replayed, and adversarial inputs have explicit tests
+- no new write capability is enabled by default
+- a separate security review approves the final boundary
+
+### Release
+
+- exact commit verified in a detached clean worktree
+- supported runtimes pass with warnings promoted to errors
+- wheel and source distribution contain no private or derived artifacts
+- MCP version and tool surface match documentation
+- actual-vault checks preserve private Markdown digests
+- immutable tag and public assets are verified after download
+
+## Orca Project Configuration
+
+The repository `orca.yaml` contains only reviewed, local project defaults:
+
+- a setup hook that creates a worktree-local default development environment
+- terminal tabs for tests, read-only status, and Git status
+- no archive hook
+- no cloud environment recipe
+- no credential, token, private path, model download, index build, or writeback
+
+The setup hook is intentionally safe to rerun. It installs only the default
+development and MCP extras. The optional local-embedding runtime remains an
+explicit task action because it has platform-specific dependencies and may use
+a large local model cache.
+
+## Decision Authority
+
+- `AGENTS.md`: mandatory agent and safety behavior
+- this document: current goal, sequencing, worktree operation, and v1.0 gates
+- versioned roadmaps and release notes: historical implementation evidence
+- architecture and schema documents: durable public contracts
+- worktree task briefs and checkpoints: temporary execution state
+
+When these disagree, stop implementation and reconcile the durable documents
+in a dedicated documentation or schema worktree before proceeding.

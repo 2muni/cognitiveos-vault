@@ -61,12 +61,28 @@ scripts/verify_environment.py        Cross-device verification
 src/cognitiveos/                    Python implementation
 tests/                              Unit and fixture tests
 System/docs/                        Architecture, schemas, decisions, roadmap
+orca.yaml                           Orca worktree setup and terminal defaults
 System/templates/v0.1/              Canonical note templates
 System/templates/v0.2/              Capture and durable note templates
 .pkm-index/                         Generated local index, Git-ignored
 ```
 
 Personal vault content folders are intentionally ignored by Git except for `.gitkeep` placeholders.
+
+## Orca Worktree Development
+
+Future implementation work is organized as one objective per Orca worktree,
+created from the latest `origin/main`. The primary `main` checkout remains the
+clean integration baseline. Orca can use the reviewed `orca.yaml` setup hook to
+create a worktree-local default Python environment; the hook does not build an
+index, download a model, synchronize private notes, or enable writeback.
+
+The canonical final goal, v0.6-to-v1.0 roadmap, branch taxonomy, task brief,
+isolation rules, and completion gates are maintained in:
+
+```text
+System/docs/orca-worktree-operating-plan.md
+```
 
 ## MCP Tools
 
@@ -82,7 +98,7 @@ Read-only tools:
 - `propose_moc`
 - `build_context_pack`
 
-No MCP tool writes to Markdown. The published `0.4.0` release remains read-only.
+No MCP tool writes to Markdown. The published `0.5.0` release remains read-only.
 
 ## Intel Mac Quick Start
 

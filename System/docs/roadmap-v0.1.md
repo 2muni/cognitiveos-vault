@@ -2,14 +2,15 @@
 
 ## Current Status
 
-Status checked on 2026-07-14.
+Status checked on 2026-07-18.
 
 The v0.1 read-only MVP remains the historical architecture baseline. The latest
-published stable release is `v0.4.0`, which includes optional semantic
-retrieval, note-contract validation, alias-aware indexing, and graph-aware
-retrieval. The next approved implementation boundary is the read-only v0.5
-operational freshness plan in `System/docs/roadmap-v0.5.md`. Another-device and
-interactive client discovery checks remain deferred.
+published stable release is `v0.5.0`, which adds deterministic manifests,
+unified derived-state status, and atomic full and incremental lexical index
+publication to the v0.4 retrieval and note-contract baseline. Future work is
+managed through the Orca worktree operating plan in
+`System/docs/orca-worktree-operating-plan.md`. Another-device and interactive
+client discovery checks remain deferred until the portability phase.
 
 Summary:
 
@@ -30,13 +31,13 @@ Summary:
 | Writeback implementation | Deferred |
 | Writeback permission design | Complete |
 | Optional vector search | Complete; disabled by default |
-| Unified derived-state freshness | v0.5 Unit 1 complete |
-| Atomic full lexical publication | v0.5 Unit 2 complete |
-| Incremental lexical indexing | Planned for v0.5 |
+| Unified derived-state freshness | Complete in v0.5 |
+| Atomic full lexical publication | Complete in v0.5 |
+| Incremental lexical indexing | Complete in v0.5 |
 | Graph database | Deferred |
 | Local LLM calls | Deferred |
 | Release checklist and tag policy | Complete |
-| Public GitHub Release `v0.4.0` | Complete |
+| Public GitHub Release `v0.5.0` | Complete |
 | Current Intel Mac environment | Complete |
 | Other-device and client UI verification | Deferred by user |
 
@@ -231,7 +232,7 @@ Deferred implementation:
 
 Current automated verification:
 
-- `85` unit tests
+- `92` unit tests
 - parser tests
 - safety tests
 - index tests
@@ -314,8 +315,8 @@ tracked separately in `System/docs/release-v0.3.md`.
 Release policy:
 
 - `System/docs/release-v0.1.md`
-- current published package version: `0.4.0`
-- latest published stable tag and GitHub Release: `v0.4.0`
+- current published package version: `0.5.0`
+- latest published stable tag and GitHub Release: `v0.5.0`
 
 ## Next Read-only Quality Phase
 

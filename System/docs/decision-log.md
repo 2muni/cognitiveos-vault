@@ -1290,3 +1290,32 @@ Publication checkpoint:
   `8cc5b89a65db467e7ad4e23629a5fe3381ef88d8c47557e581552d158ea556ec`
 - public asset downloads match the local verified artifacts byte-for-byte
 - historical tags remain immutable
+
+### Orca Worktree-native Development
+
+Decision:
+
+- adopt `System/docs/orca-worktree-operating-plan.md` as the canonical current
+  goal and execution plan after `v0.5.0`
+- keep the primary `main` checkout as a clean integration baseline
+- perform future implementation in one-objective Orca worktrees created from
+  current `origin/main`
+- classify branches by documentation, maintenance, feature, retrieval, schema,
+  security, and release lanes under the `codex/` prefix
+- add a reviewed `orca.yaml` setup hook that creates only the default local
+  development environment
+- forbid the setup hook from building indexes, downloading models,
+  synchronizing private notes, using credentials, or enabling writeback
+- keep worktree-local runtimes and derived SQLite state isolated
+
+Rationale:
+
+- Orca treats each feature as a real Git worktree and links source-control and
+  review state to that workspace
+- explicit worktree ownership reduces overlapping agent edits and makes
+  parallel experiments disposable
+- isolated derived state prevents one task from invalidating another task's
+  index, test environment, or release evidence
+- a finite v1.0 boundary keeps future work focused on grounded retrieval,
+  approval-gated writing, portability, and recovery rather than unbounded
+  feature accumulation

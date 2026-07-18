@@ -2,8 +2,8 @@
 
 ## Status
 
-Design approved on 2026-07-14. Units 1 through 3 are implemented on the v0.5
-development branches; stabilization remains pending.
+Design approved on 2026-07-14. Units 1 through 4 are complete, including the
+stabilization audit. A separate release-candidate decision remains pending.
 
 The latest published stable release remains `v0.4.0`. This plan defines the
 next read-only implementation boundary; it does not authorize writeback,

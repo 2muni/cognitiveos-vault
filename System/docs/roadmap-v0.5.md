@@ -2,8 +2,8 @@
 
 ## Status
 
-Design approved on 2026-07-14. Units 1 through 3 are implemented on the v0.5
-development branches; stabilization remains pending.
+Design approved on 2026-07-14. Units 1 through 4 are complete, including the
+stabilization audit. A separate release-candidate decision remains pending.
 
 The latest published stable release remains `v0.4.0`. This plan defines the
 next read-only implementation boundary; it does not authorize writeback,
@@ -278,11 +278,34 @@ Implementation checkpoint:
 
 ### Unit 4: Stabilization
 
+Status: Complete.
+
 - run both modes against the actual vault
 - record full, changed, and no-op timings without exposing note paths or content
 - verify Markdown checksums before and after every build
 - verify lexical and embedding integrity plus required semantic search
 - repeat clean-worktree, packaging, MCP, and release gates
+
+Current checkpoint:
+
+- actual-vault full rebuild: 58 notes in 1.21 seconds
+- actual-vault changed incremental build: one added tracked System document and
+  58 reused notes in 0.96 seconds
+- immediate no-op incremental build: 59 reused notes in 0.42 seconds with
+  unchanged database SHA-256, modification time, size, and generation
+- Python 3.14 default and Python 3.12 local-embedding environments each pass 92
+  tests with `ResourceWarning` promoted to an error
+- detached clean-worktree Python 3.14 and Python 3.12 environments each pass 92
+  tests; wheel-only installation exposes all seven development CLIs
+- pinned-model forced-offline evaluation passes Recall@5 and MRR at `1.0`
+- clean environment verification indexes 50 tracked notes and confirms MCP
+  initialize, nine tools, invalid-call errors, and writeback disabled
+- wheel and source distribution builds are reproducible before and after local
+  runtime and derived-index creation; runtime, model, private-note, and derived
+  artifacts remain excluded
+- final actual-vault state is healthy at 59 lexical notes/FTS rows and 59
+  embedding notes/509 chunks, with both SQLite integrity checks passing
+- private Markdown remains unchanged
 
 ## Completion Gates
 

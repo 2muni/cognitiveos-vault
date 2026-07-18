@@ -51,6 +51,8 @@ from cognitiveos.indexer import VaultIndex
 from cognitiveos.evaluation import (
     EVALUATION_VERSION,
     RETRIEVAL_QUALITY_FIXTURE_VERSION,
+    all_gates_passed,
+    breakdown_non_regression_gates,
     evaluate_retrieval,
     load_evaluation_cases,
     mean_reciprocal_rank,
@@ -828,7 +830,41 @@ class EmbeddingEvaluationTests(CognitiveOSTestCase):
             ["aliases", "backlinks", "graph_evidence", "headings", "recency", "title", "typed_links"],
         )
         self.assertTrue(all(item["case_count"] > 0 for item in first["breakdowns"]["signal"].values()))
+        self.assertTrue(first["gates"]["all_passed"])
+        self.assertEqual(
+            list(first["gates"]["breakdowns"]),
+            ["language", "signal"],
+        )
+        self.assertTrue(
+            all(
+                all(all(signal_gates.values()) for signal_gates in group.values())
+                for group in first["gates"]["breakdowns"].values()
+            )
+        )
         self.assertEqual(report_without_runtime(first), report_without_runtime(second))
+
+    def test_retrieval_quality_breakdown_gates_detect_slice_regressions(self) -> None:
+        cases_path = Path(__file__).resolve().parents[1] / "System" / "evaluation" / (
+            "retrieval-quality-v0.7.json"
+        )
+        cases = load_evaluation_cases(cases_path)
+        report = evaluate_retrieval(
+            FIXTURES / "retrieval_quality_vault",
+            KeywordTestEmbeddingProvider(),
+            cases,
+            self.root / "quality-gate-regression",
+            min_hybrid_recall=0.0,
+            min_hybrid_mrr=0.0,
+        )
+        report["breakdowns"]["signal"]["aliases"]["hybrid_mrr"] = 0.0
+
+        gates = {
+            "breakdowns": breakdown_non_regression_gates(report["breakdowns"]),
+        }
+        gates["all_passed"] = all_gates_passed(gates)
+
+        self.assertFalse(gates["breakdowns"]["signal"]["aliases"]["hybrid_mrr_non_regression"])
+        self.assertFalse(gates["all_passed"])
 
     def test_retrieval_quality_fixture_can_include_deterministic_diagnostics(self) -> None:
         cases_path = Path(__file__).resolve().parents[1] / "System" / "evaluation" / (

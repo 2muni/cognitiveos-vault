@@ -230,6 +230,14 @@ def evaluate_retrieval(
         "hybrid_recall_minimum": hybrid_recall >= min_hybrid_recall,
         "hybrid_mrr_minimum": hybrid_mrr >= min_hybrid_mrr,
     }
+    breakdowns = (
+        evaluation_breakdowns(cases, lexical_rankings, hybrid_rankings, k)
+        if cases[0].fixture_version == RETRIEVAL_QUALITY_FIXTURE_VERSION
+        else None
+    )
+    if breakdowns is not None:
+        gates["breakdowns"] = breakdown_non_regression_gates(breakdowns)
+    gates["all_passed"] = all_gates_passed(gates)
     identity = provider_identity(provider)
     return {
         "evaluation_version": cases[0].fixture_version,
@@ -260,20 +268,9 @@ def evaluate_retrieval(
             "min_hybrid_recall": min_hybrid_recall,
             "min_hybrid_mrr": min_hybrid_mrr,
         },
-        "gates": {**gates, "all_passed": all(gates.values())},
+        "gates": gates,
         "cases": case_results,
-        **(
-            {
-                "breakdowns": evaluation_breakdowns(
-                    cases,
-                    lexical_rankings,
-                    hybrid_rankings,
-                    k,
-                )
-            }
-            if cases[0].fixture_version == RETRIEVAL_QUALITY_FIXTURE_VERSION
-            else {}
-        ),
+        **({"breakdowns": breakdowns} if breakdowns is not None else {}),
     }
 
 
@@ -306,6 +303,45 @@ def evaluation_breakdowns(
         group_name: {key: metrics(indices) for key, indices in sorted(group.items())}
         for group_name, group in groups.items()
     }
+
+
+def breakdown_non_regression_gates(
+    breakdowns: dict[str, dict[str, dict[str, float | int]]],
+) -> dict[str, dict[str, dict[str, bool]]]:
+    """Require every frozen-fixture slice to retain hybrid recall and MRR.
+
+    This evaluates signal and language behavior without making any of those
+    signals a new ranking input. It intentionally compares hybrid retrieval to
+    the existing lexical baseline rather than imposing a score adjustment.
+    """
+    gates: dict[str, dict[str, dict[str, bool]]] = {}
+    for group_name, group in sorted(breakdowns.items()):
+        gates[group_name] = {}
+        for key, metrics in sorted(group.items()):
+            lexical_recall_key = next(
+                metric for metric in metrics if metric.startswith("lexical_recall_at_")
+            )
+            hybrid_recall_key = lexical_recall_key.replace("lexical_", "hybrid_", 1)
+            gates[group_name][key] = {
+                "hybrid_recall_non_regression": (
+                    metrics[hybrid_recall_key] >= metrics[lexical_recall_key]
+                ),
+                "hybrid_mrr_non_regression": metrics["hybrid_mrr"] >= metrics["lexical_mrr"],
+            }
+    return gates
+
+
+def all_gates_passed(gates: dict[str, Any]) -> bool:
+    """Recursively evaluate a deterministic gate tree, excluding its summary."""
+    for key, value in gates.items():
+        if key == "all_passed":
+            continue
+        if isinstance(value, dict):
+            if not all_gates_passed(value):
+                return False
+        elif value is not True:
+            return False
+    return True
 
 
 def recall_at_k(

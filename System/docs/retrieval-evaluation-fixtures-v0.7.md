@@ -32,6 +32,14 @@ The evaluation report adds sorted, timing-free `breakdowns.language` and
 hybrid Recall@k and MRR. A case with multiple signals participates in every
 declared signal breakdown.
 
+For this fixture, `gates.breakdowns.language` and
+`gates.breakdowns.signal` add deterministic hybrid non-regression checks for
+Recall@k and MRR in every slice. `gates.all_passed` includes these checks as
+well as the aggregate thresholds. A candidate ranking therefore cannot pass
+solely by preserving an aggregate score while regressing a declared retrieval
+signal or Korean, English, or mixed-language slice. The gates evaluate existing
+results only; they do not add a ranking feature or alter lexical scoring.
+
 ## Retrieval diagnostics contract
 
 `RetrievalService.search_notes(..., diagnostics=True)` adds a

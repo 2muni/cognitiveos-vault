@@ -15,6 +15,7 @@ from scripts.verify_release import (
     ensure_output_membership,
     format_text,
     normalize_archive_member,
+    verify_fresh_clone_consumer,
 )
 
 
@@ -112,6 +113,9 @@ class ReleaseGateTests(unittest.TestCase):
                 )
             ),
         )
+
+    def test_fresh_clone_consumer_is_exposed_as_a_release_gate(self) -> None:
+        self.assertTrue(callable(verify_fresh_clone_consumer))
 
 
 if __name__ == "__main__":

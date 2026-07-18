@@ -335,6 +335,51 @@ def verify_wheel_consumer(artifacts: Iterable[Path]) -> dict[str, Any]:
     return {"package_version": installed_version, "cli_entry_points": list(CLI_NAMES)}
 
 
+def verify_fresh_clone_consumer(artifacts: Iterable[Path]) -> dict[str, Any]:
+    """Install the public wheel while running from a vault-content-free clone."""
+    wheels = [path for path in artifacts if path.suffix == ".whl"]
+    if len(wheels) != 1:
+        raise GateFailure(f"expected exactly one wheel for clone consumer test, found {len(wheels)}")
+    with tempfile.TemporaryDirectory(prefix="cognitiveos-fresh-clone-") as temp_dir:
+        workspace = Path(temp_dir)
+        clone = workspace / "clone"
+        clone.mkdir()
+        archive = workspace / "source.tar"
+        run_checked(["git", "archive", "--format=tar", "HEAD", "-o", str(archive)])
+        with tarfile.open(archive) as source:
+            # The archive is produced directly by git from this checkout; the
+            # verifier does not consume an untrusted tarball here.
+            source.extractall(clone)
+        private_files = sorted(
+            path.relative_to(clone).as_posix()
+            for root in PRIVATE_ROOTS
+            for path in (clone / root).rglob("*")
+            if path.is_file() and path.name != ".gitkeep"
+        )
+        if private_files:
+            raise GateFailure(f"fresh clone contains private vault content: {private_files}")
+        environment = workspace / "venv"
+        venv.EnvBuilder(with_pip=True, clear=True).create(environment)
+        python = _venv_executable(environment, "python")
+        run_checked([str(python), "-m", "pip", "install", "--no-deps", str(wheels[0])], cwd=clone)
+        installed_version = run_checked(
+            [str(python), "-c", "import cognitiveos; print(cognitiveos.__version__)"], cwd=clone
+        ).strip()
+        if installed_version != __version__:
+            raise GateFailure(f"fresh-clone wheel version mismatch: {installed_version} != {__version__}")
+        for name in CLI_NAMES:
+            executable = _venv_executable(environment, name)
+            if not executable.is_file():
+                raise GateFailure(f"fresh-clone wheel is missing CLI entry point: {name}")
+            run_checked([str(executable), "--help"], cwd=clone)
+    return {
+        "package_version": installed_version,
+        "clone": "git-archive",
+        "vault_content": "absent",
+        "cli_entry_points": list(CLI_NAMES),
+    }
+
+
 def verify_release(output_dir: Path, *, report_path: Path | None = None) -> dict[str, Any]:
     gates: list[dict[str, Any]] = []
     test_details = run_test_gate()
@@ -351,6 +396,10 @@ def verify_release(output_dir: Path, *, report_path: Path | None = None) -> dict
     )
     consumer_details = verify_wheel_consumer(artifacts)
     gates.append({"name": "wheel-consumer", "status": "pass", "details": consumer_details})
+    clone_consumer_details = verify_fresh_clone_consumer(artifacts)
+    gates.append(
+        {"name": "fresh-clone-public-wheel-consumer", "status": "pass", "details": clone_consumer_details}
+    )
     return {
         "schema": SCHEMA,
         "status": "pass",

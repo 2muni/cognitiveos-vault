@@ -10,7 +10,12 @@ import unittest
 from unittest import mock
 
 from cognitiveos.approval import OwnerConfirmation
-from cognitiveos.atomic_apply import ApplyOutcome, ApplyRefused, AtomicSingleFileApplier
+from cognitiveos.atomic_apply import (
+    ApplyOutcome,
+    ApplyRefused,
+    AtomicSingleFileApplier,
+    provision_audit_boundary,
+)
 
 from writeback_support import TestOwnerAuthority
 
@@ -21,6 +26,7 @@ AUDIT_KEY = b"a" * 32
 def _concurrent_create_worker(
     root: str,
     audit: str,
+    boundary: str,
     path: str,
     barrier: object,
     queue: object,
@@ -32,6 +38,7 @@ def _concurrent_create_worker(
         root,
         allowed_roots=("Notes",),
         audit_directory=audit,
+        audit_boundary_path=boundary,
         owner_authority=authority,
         audit_key=AUDIT_KEY,
     )
@@ -39,6 +46,28 @@ def _concurrent_create_worker(
     token = applier.approve_from_trusted_owner(authority.confirm(proposal))
     barrier.wait(timeout=10)  # type: ignore[union-attr]
     queue.put(applier.apply(proposal_id=proposal["proposal_id"], token=token).outcome.value)  # type: ignore[union-attr]
+    applier.close()
+
+
+def _concurrent_recovery_worker(
+    root: str,
+    audit: str,
+    boundary: str,
+    barrier: object,
+    queue: object,
+) -> None:
+    """Independent server processes race only on read-only audit recovery."""
+
+    applier = AtomicSingleFileApplier(
+        root,
+        allowed_roots=("Notes",),
+        audit_directory=audit,
+        audit_boundary_path=boundary,
+        owner_authority=TestOwnerAuthority(),
+        audit_key=AUDIT_KEY,
+    )
+    barrier.wait(timeout=10)  # type: ignore[union-attr]
+    queue.put(len(applier.recover_incomplete_audit()))  # type: ignore[union-attr]
     applier.close()
 
 
@@ -50,11 +79,18 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.notes.mkdir(parents=True)
         self.audit_directory = Path(self.temporary.name) / "audit"
         self.audit_directory.mkdir(mode=0o700)
+        self.audit_boundary = Path(self.temporary.name) / "audit-boundary"
+        provision_audit_boundary(
+            self.audit_directory,
+            audit_key=AUDIT_KEY,
+            boundary_path=self.audit_boundary,
+        )
         self.owner = TestOwnerAuthority()
         self.applier = AtomicSingleFileApplier(
             self.root,
             allowed_roots=("Notes",),
             audit_directory=self.audit_directory,
+            audit_boundary_path=self.audit_boundary,
             owner_authority=self.owner,
             audit_key=AUDIT_KEY,
         )
@@ -210,6 +246,26 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         with self.assertRaises(ApplyRefused):
             self.applier.audit.records()
 
+    def test_audit_tail_truncation_is_detected_by_the_external_boundary(self) -> None:
+        proposal = self.propose(data=b"auditable\n")
+        token = self.approve(proposal)
+        self.assertEqual(ApplyOutcome.APPLIED, self.applier.apply(proposal_id=proposal["proposal_id"], token=token).outcome)
+
+        journal = self.audit_directory / "journal.jsonl"
+        retained = journal.read_bytes().splitlines(keepends=True)
+        self.assertEqual(2, len(retained))
+        journal.write_bytes(b"".join(retained[:-1]))
+
+        with self.assertRaisesRegex(ApplyRefused, "audit_unavailable"):
+            self.applier.audit.records()
+        blocked = self.propose(path="Notes/blocked-after-truncation.md")
+        blocked_token = self.approve(blocked)
+        self.assertEqual(
+            ApplyOutcome.REFUSED,
+            self.applier.apply(proposal_id=blocked["proposal_id"], token=blocked_token).outcome,
+        )
+        self.assertFalse((self.notes / "blocked-after-truncation.md").exists())
+
     def test_recovery_serializes_read_verify_append_and_never_writes_source(self) -> None:
         proposal = self.propose(data=b"published before interruption\n")
         token = self.approve(proposal)
@@ -232,6 +288,57 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.assertEqual("recovery", recovered[0]["kind"])
 
     @unittest.skipUnless("fork" in multiprocessing.get_all_start_methods(), "requires POSIX fork")
+    def test_cross_process_recovery_claims_pending_evidence_once(self) -> None:
+        proposal = self.propose(data=b"published before concurrent recovery\n")
+        token = self.approve(proposal)
+        original_publish = self.applier._publish_absent
+
+        def interrupt_after_publish(path: str, data: bytes) -> None:
+            original_publish(path, data)
+            raise KeyboardInterrupt
+
+        with mock.patch.object(self.applier, "_publish_absent", side_effect=interrupt_after_publish):
+            with self.assertRaises(KeyboardInterrupt):
+                self.applier.apply(proposal_id=proposal["proposal_id"], token=token)
+
+        context = multiprocessing.get_context("fork")
+        barrier = context.Barrier(2)
+        queue = context.Queue()
+        processes = [
+            context.Process(
+                target=_concurrent_recovery_worker,
+                args=(str(self.root), str(self.audit_directory), str(self.audit_boundary), barrier, queue),
+            )
+            for _ in range(2)
+        ]
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=15)
+            self.assertEqual(0, process.exitcode)
+        self.assertEqual([0, 1], sorted(queue.get(timeout=2) for _ in processes))
+
+        records = self.applier.audit.records()
+        self.assertEqual(["pending", "applied_verified"], [record["outcome"] for record in records])
+        self.assertEqual([1, 2], [record["journal_sequence"] for record in records])
+
+    def test_replaced_journal_lock_is_refused_before_source_mutation(self) -> None:
+        proposal = self.propose(path="Notes/no-lock-split.md")
+        token = self.approve(proposal)
+        lock = self.audit_directory / "journal.lock"
+        lock.unlink()
+        lock.write_bytes(b"replacement")
+        lock.chmod(0o600)
+
+        with self.assertRaisesRegex(ApplyRefused, "audit_unavailable"):
+            self.applier.audit.records()
+        self.assertEqual(
+            ApplyOutcome.REFUSED,
+            self.applier.apply(proposal_id=proposal["proposal_id"], token=token).outcome,
+        )
+        self.assertFalse((self.notes / "no-lock-split.md").exists())
+
+    @unittest.skipUnless("fork" in multiprocessing.get_all_start_methods(), "requires POSIX fork")
     def test_cross_process_audit_chain_is_serialized_and_verified(self) -> None:
         context = multiprocessing.get_context("fork")
         barrier = context.Barrier(2)
@@ -239,7 +346,14 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         processes = [
             context.Process(
                 target=_concurrent_create_worker,
-                args=(str(self.root), str(self.audit_directory), f"Notes/concurrent-{index}.md", barrier, queue),
+                args=(
+                    str(self.root),
+                    str(self.audit_directory),
+                    str(self.audit_boundary),
+                    f"Notes/concurrent-{index}.md",
+                    barrier,
+                    queue,
+                ),
             )
             for index in range(2)
         ]
@@ -255,6 +369,83 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.assertEqual(records[0]["entry_digest"], records[1]["previous_entry_digest"])
         self.assertEqual(records[1]["entry_digest"], records[2]["previous_entry_digest"])
         self.assertEqual(records[2]["entry_digest"], records[3]["previous_entry_digest"])
+
+    def test_case_variant_denied_roots_and_allowlist_aliases_are_refused(self) -> None:
+        (self.root / "Assets").mkdir()
+        for index, allowed_root in enumerate(("assets", "notes")):
+            with self.subTest(allowed_root=allowed_root):
+                audit = Path(self.temporary.name) / f"case-audit-{index}"
+                audit.mkdir(mode=0o700)
+                boundary = Path(self.temporary.name) / f"case-boundary-{index}"
+                provision_audit_boundary(audit, audit_key=AUDIT_KEY, boundary_path=boundary)
+                with self.assertRaisesRegex(ApplyRefused, "invalid_allowed_root"):
+                    AtomicSingleFileApplier(
+                        self.root,
+                        allowed_roots=(allowed_root,),
+                        audit_directory=audit,
+                        audit_boundary_path=boundary,
+                        owner_authority=TestOwnerAuthority(),
+                        audit_key=AUDIT_KEY,
+                    )
+
+    def test_session_end_and_cancellation_invalidate_approved_tokens(self) -> None:
+        session_ended = self.propose(path="Notes/session-ended.md")
+        session_token = self.approve(session_ended)
+        self.assertEqual(1, self.applier.end_owner_session("trusted-owner-session"))
+        self.assertEqual(
+            ApplyOutcome.REFUSED,
+            self.applier.apply(proposal_id=session_ended["proposal_id"], token=session_token).outcome,
+        )
+
+        cancelled = self.propose(path="Notes/cancelled.md")
+        cancelled_token = self.approve(cancelled)
+        self.assertTrue(self.applier.cancel(cancelled["proposal_id"]))
+        self.assertEqual(
+            ApplyOutcome.REFUSED,
+            self.applier.apply(proposal_id=cancelled["proposal_id"], token=cancelled_token).outcome,
+        )
+        self.assertFalse((self.notes / "session-ended.md").exists())
+        self.assertFalse((self.notes / "cancelled.md").exists())
+
+    def test_restart_and_server_root_or_policy_identity_change_invalidate_tokens(self) -> None:
+        server_changed = self.propose(path="Notes/server-changed.md")
+        server_token = self.approve(server_changed)
+        self.applier._server_instance_id = "server-restarted"  # Simulate trusted host identity rotation.
+        self.assertEqual(
+            ApplyOutcome.REFUSED,
+            self.applier.apply(proposal_id=server_changed["proposal_id"], token=server_token).outcome,
+        )
+        self.applier._server_instance_id = server_changed["metadata"]["server_instance_id"]
+
+        policy_changed = self.propose(path="Notes/policy-changed.md")
+        policy_token = self.approve(policy_changed)
+        self.applier._policy_identity = "policy-reloaded"
+        self.assertEqual(
+            ApplyOutcome.REFUSED,
+            self.applier.apply(proposal_id=policy_changed["proposal_id"], token=policy_token).outcome,
+        )
+        self.applier._policy_identity = "writeback-policy/v0.8"
+
+        root_changed = self.propose(path="Notes/root-changed.md")
+        root_token = self.approve(root_changed)
+        self.applier._root_identity = (-1, -1)  # Simulate a root replacement detected before write.
+        self.assertEqual(
+            ApplyOutcome.REFUSED,
+            self.applier.apply(proposal_id=root_changed["proposal_id"], token=root_token).outcome,
+        )
+        self.assertFalse((self.notes / "server-changed.md").exists())
+        self.assertFalse((self.notes / "policy-changed.md").exists())
+        self.assertFalse((self.notes / "root-changed.md").exists())
+
+    def test_close_invalidates_private_state_so_a_restart_cannot_resume_it(self) -> None:
+        proposal = self.propose(path="Notes/restart.md")
+        token = self.approve(proposal)
+        self.applier.close()
+        self.assertEqual(
+            ApplyOutcome.REFUSED,
+            self.applier.apply(proposal_id=proposal["proposal_id"], token=token).outcome,
+        )
+        self.assertFalse((self.notes / "restart.md").exists())
 
     def test_path_escape_symlink_and_replay_are_refused(self) -> None:
         for path in ("Notes/../outside.md", "/Notes/note.md", "Notes\\note.md", "Notes/note.txt"):
@@ -281,6 +472,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
             self.root,
             allowed_roots=("Notes",),
             audit_directory=self.audit_directory,
+            audit_boundary_path=self.audit_boundary,
             owner_authority=authority,
             audit_key=AUDIT_KEY,
             wall_clock=lambda: now[0],

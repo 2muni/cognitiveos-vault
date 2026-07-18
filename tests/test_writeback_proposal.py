@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from cognitiveos.approval import sha256_checksum
-from cognitiveos.atomic_apply import AtomicSingleFileApplier
+from cognitiveos.atomic_apply import AtomicSingleFileApplier, provision_audit_boundary
 from cognitiveos.writeback_proposal import (
     ProposalValidationError,
     compute_proposal_fingerprint,
@@ -26,10 +26,13 @@ class ProposalContractValidationTests(unittest.TestCase):
         (root / "Notes").mkdir(parents=True)
         audit = Path(self.temporary.name) / "audit"
         audit.mkdir(mode=0o700)
+        audit_boundary = Path(self.temporary.name) / "audit-boundary"
+        provision_audit_boundary(audit, audit_key=b"v" * 32, boundary_path=audit_boundary)
         self.applier = AtomicSingleFileApplier(
             root,
             allowed_roots=("Notes",),
             audit_directory=audit,
+            audit_boundary_path=audit_boundary,
             owner_authority=TestOwnerAuthority(),
             audit_key=b"v" * 32,
         )
@@ -122,6 +125,18 @@ class ProposalContractValidationTests(unittest.TestCase):
         self.assertIn("\\xff", rendered)
         self.assertNotIn(str(self.temporary.name), rendered)
         self.validate(proposal)
+
+    def test_only_canonical_padded_rfc4648_base64_is_accepted(self) -> None:
+        proposal = self.applier.propose(operation="create_absent", path="Notes/base64.md", proposed_bytes=b"f")
+        for spelling in ("Zh==", "Zg", "Zg==\n", "-g=="):
+            with self.subTest(spelling=repr(spelling)):
+                altered = copy.deepcopy(proposal)
+                change = altered["change"]
+                assert isinstance(change, dict)
+                change["proposed_bytes_base64"] = spelling
+                altered["proposal_fingerprint"] = compute_proposal_fingerprint(altered)
+                with self.assertRaisesRegex(ProposalValidationError, "malformed_base64"):
+                    self.validate(altered)
 
     def test_expiry_is_limited_to_ten_minutes_from_issued_at(self) -> None:
         proposal = self.valid_absent()

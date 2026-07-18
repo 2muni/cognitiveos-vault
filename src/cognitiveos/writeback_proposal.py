@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import hmac
 import json
 import re
 from typing import Any, Mapping
@@ -328,12 +329,25 @@ def _exact_object(value: object, name: str, expected: set[str]) -> dict[str, Any
 
 
 def _strict_base64(value: object) -> bytes:
+    """Decode only the unique padded RFC 4648 spelling for exact bytes.
+
+    ``validate=True`` rejects non-alphabet characters but deliberately accepts
+    some encodings with non-zero unused pad bits.  Those alternate spellings
+    decode to the same bytes, which makes the fingerprinted representation
+    ambiguous.  Re-encoding the decoded value makes the RFC 4648 canonical
+    padded spelling an explicit part of validation.
+    """
+
     if not isinstance(value, str):
         raise ProposalValidationError("malformed_base64")
     try:
-        return base64.b64decode(value.encode("ascii"), validate=True)
+        encoded = value.encode("ascii")
+        decoded = base64.b64decode(encoded, validate=True)
     except (UnicodeEncodeError, ValueError) as exc:
         raise ProposalValidationError("malformed_base64") from exc
+    if not hmac.compare_digest(base64.b64encode(decoded), encoded):
+        raise ProposalValidationError("malformed_base64")
+    return decoded
 
 
 def _checksum(value: object, name: str) -> str:

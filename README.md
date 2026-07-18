@@ -188,8 +188,9 @@ OK
 The platform-neutral release verifier runs the warning-strict test suite,
 checks package and read-only MCP identities, builds the wheel and source
 distribution twice, rejects private or derived artifact content, and installs
-the wheel into an isolated consumer environment to exercise all seven CLI
-entry points:
+the public wheel into isolated consumers: one ordinary wheel environment and
+one vault-content-free `git archive` clone. Both exercise all seven CLI entry
+points:
 
 ```bash
 ./.venv/bin/python scripts/verify_release.py \

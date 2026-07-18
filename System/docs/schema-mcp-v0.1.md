@@ -202,6 +202,8 @@ Returned fields:
 - `stats`: source count, evidence path count, key point count, source word
   count, selection version, graph edge count, and graph-connected source count
 - `budget`: requested, estimated, and remaining tokens plus truncation state and estimator identity
+- `quality`: additive deterministic structural checks for evidence density,
+  vault-relative paths, grounded rendered content, and a stable fingerprint
 
 Each source includes `selection.version = type-diverse-graph-v0.1`,
 `graph_connected_to`, and `graph_edge_types`.
@@ -213,6 +215,13 @@ and prefers a directly connected candidate within the eligible type before
 falling back to search rank. Source identity and excerpts are
 allocated before key points and evidence; optional evidence is added round-robin
 without exceeding the requested context budget.
+
+`quality` is a local metadata contract (`context-pack-quality-v0.1`), not a
+claim that a model-generated answer is factually correct. It never reads or
+returns Markdown beyond the existing pack payload and does not change
+lexical-only retrieval, token allocation, or the nine-tool read-only MCP
+surface. The complete workflow contract is in
+`System/docs/context-pack-quality-v0.1.md`.
 
 ## Deferred Write Tools
 

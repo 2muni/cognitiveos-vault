@@ -4,13 +4,43 @@ This repository is an Obsidian vault and the Markdown files are the source of tr
 
 ## Codex Model Selection
 
-Select the GPT-5.6 model tier in the Codex client for each task. The project config intentionally does not pin a model so that the selected client tier carries across devices.
+Use only the official Codex model IDs documented in the current Codex manual. Do
+not translate the project's historical `Sol`/`Terra` labels into invented model
+IDs such as `gpt-5.6-sol`, and do not pass `light` as a reasoning effort. The
+project default is pinned in `.codex/config.toml` for cost-efficient work; a
+task may explicitly select the stronger official model when its tier requires
+it.
 
-- `Terra / light`: UI checks, status checks, small documentation edits, and routine Git operations
-- `Sol / light`: narrow implementation, focused tests, and small bug fixes
-- `Sol / medium`: normal feature work, environment migration, retrieval changes, and release stabilization
-- `Sol / high`: architecture, schema evolution, writeback design, and security review
-- `Sol / ultra`: high-impact migrations, authorization boundary changes, destructive-operation design, and incident analysis
+Official model IDs for Orca terminal commands:
+
+- `gpt-5.6-terra`: cost-efficient scans, status checks, documentation, routine Git, and other read-heavy work
+- `gpt-5.6`: normal implementation, validation, architecture, security, and release work
+- `gpt-5.3-codex-spark`: optional ChatGPT Pro research-preview model for text-only iteration; do not assume it is available
+
+Supported `model_reasoning_effort` values are `none`, `minimal`, `low`,
+`medium`, `high`, `xhigh`, `max`, and `ultra`, subject to account/model
+availability. Use `minimal` or `low` for cost-efficient Terra tasks, and never
+use the unsupported value `light`.
+
+When launching an Orca Codex terminal, use the exact command form below and
+select the model from this table—not the historical tier label:
+
+```text
+codex --model gpt-5.6-terra -c model_reasoning_effort="low"
+codex --model gpt-5.6 -c model_reasoning_effort="medium"
+```
+
+Task tier mapping:
+
+- `gpt-5.6-terra / low`: UI checks, status checks, small documentation edits, and routine Git operations
+- `gpt-5.6-terra / low`: narrow implementation, focused tests, and small bug fixes
+- `gpt-5.6 / medium`: normal feature work, environment migration, retrieval changes, and release stabilization
+- `gpt-5.6 / high`: architecture, schema evolution, writeback design, and security review
+- `gpt-5.6 / xhigh` or `max`: high-impact migrations, authorization boundary changes, destructive-operation design, and incident analysis
+
+Before every Orca handoff, record the exact model ID and reasoning value in the
+task brief. If a model launch returns an invalid-model or invalid-effort error,
+stop, consult this section, and retry only with an exact documented value.
 
 At the end of every completed task, report the next recommended task and its recommended tier.
 

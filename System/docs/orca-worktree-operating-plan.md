@@ -188,8 +188,21 @@ Task names should describe the outcome, not the agent or session. Examples:
 10. Commit intentionally, push the task branch, and open a draft pull request.
 11. Resolve review and CI in the same worktree.
 12. Merge only when the branch is current with `main` and all gates pass.
-13. Delete or archive the completed worktree; keep the remote branch only when
-    repository policy requires it.
+13. Close the worktree only after verifying there are no uncommitted or
+    untracked files. Stop any live terminals, then remove completed disposable
+    worktrees with `orca worktree rm --worktree id:<repoId>::<path> --force
+    --json`; archive a worktree instead when its review, recovery, or audit
+    context must remain available. Keep the remote branch only when repository
+    policy requires it.
+14. Confirm the cleanup with `orca worktree list --json` and `git worktree
+    list --porcelain`. The completed worktree must no longer be registered,
+    while the primary `main` worktree remains present and clean.
+
+Before removal, record any required durable decision or release evidence in
+the pull request or `System/docs`; terminal scrollback and a disposable
+worktree are not durable records. Never use cleanup to discard uncommitted
+work: commit it, preserve it in an archived worktree, or obtain explicit
+approval to delete it.
 
 For competing implementations, create separate disposable worktrees and select
 one winner. Do not merge two alternatives merely because both exist.

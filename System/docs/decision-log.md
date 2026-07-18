@@ -1266,3 +1266,27 @@ Rationale:
   remote-state blocker
 - writeback remains disabled and the release changes only disposable derived
   state reliability and observation
+
+### Publication: CognitiveOS v0.5.0
+
+Decision:
+
+- publish exact verified `main` commit
+  `bb53f508bd16e66a26a23e0c852cbcb5349b4a05` as annotated tag `v0.5.0`
+- publish a non-draft, non-prerelease GitHub Release with the final release
+  notes, universal wheel, and source distribution
+- download both assets after publication and require byte identity with the
+  exact-main build outputs
+- keep the immutable `v0.5.0` tag on the verified commit while recording asset
+  digests in a separate post-release documentation commit
+
+Publication checkpoint:
+
+- GitHub Release:
+  `https://github.com/2muni/cognitiveos-vault/releases/tag/v0.5.0`
+- wheel SHA-256:
+  `77eafcf89cd1af3a6878187fd7cef2f2b106c35ff1baa4e3bdc7452d8ce59ace`
+- source distribution SHA-256:
+  `8cc5b89a65db467e7ad4e23629a5fe3381ef88d8c47557e581552d158ea556ec`
+- public asset downloads match the local verified artifacts byte-for-byte
+- historical tags remain immutable

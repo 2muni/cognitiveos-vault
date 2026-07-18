@@ -13,7 +13,7 @@ from typing import Any, Sequence
 from .embedding_index import EmbeddingIndexBuilder
 from .embeddings import EmbeddingProvider, provider_identity
 from .indexer import VaultIndex
-from .retrieval import RetrievalService
+from .retrieval import RetrievalService, search_result_to_dict
 from .sentence_transformers_adapter import (
     APPROVED_MULTILINGUAL_MODEL_ID,
     APPROVED_MULTILINGUAL_MODEL_REVISION,
@@ -150,6 +150,7 @@ def evaluate_retrieval(
     min_hybrid_recall: float = 1.0,
     min_hybrid_mrr: float = 0.8,
     model_load_seconds: float | None = None,
+    diagnostics: bool = False,
 ) -> dict[str, Any]:
     if isinstance(k, bool) or not isinstance(k, int) or k < 1:
         raise ValueError("k must be a positive integer")
@@ -183,10 +184,14 @@ def evaluate_retrieval(
     case_results: list[dict[str, Any]] = []
     for case in cases:
         started = time.perf_counter()
-        lexical = service.search_notes(case.query, limit=k, semantic_mode="off")
+        lexical = service.search_notes(
+            case.query, limit=k, semantic_mode="off", diagnostics=diagnostics
+        )
         lexical_latencies.append(time.perf_counter() - started)
         started = time.perf_counter()
-        hybrid = service.search_notes(case.query, limit=k, semantic_mode="required")
+        hybrid = service.search_notes(
+            case.query, limit=k, semantic_mode="required", diagnostics=diagnostics
+        )
         hybrid_latencies.append(time.perf_counter() - started)
         lexical_ids = [result.note_id for result in lexical]
         hybrid_ids = [result.note_id for result in hybrid]
@@ -202,6 +207,16 @@ def evaluate_retrieval(
                 **({"relevant_paths": list(case.relevant_paths)} if case.relevant_paths else {}),
                 "lexical_note_ids": lexical_ids,
                 "hybrid_note_ids": hybrid_ids,
+                **(
+                    {
+                        "retrieval_diagnostics": {
+                            "lexical": [search_result_to_dict(result) for result in lexical],
+                            "hybrid": [search_result_to_dict(result) for result in hybrid],
+                        }
+                    }
+                    if diagnostics
+                    else {}
+                ),
             }
         )
 
@@ -339,6 +354,7 @@ def main_evaluate() -> None:
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--min-hybrid-recall", type=float, default=1.0)
     parser.add_argument("--min-hybrid-mrr", type=float, default=0.8)
+    parser.add_argument("--diagnostics", action="store_true", help="Include per-result retrieval diagnostics")
     parser.add_argument("--format", choices=("text", "json"), default="json")
     args = parser.parse_args()
 
@@ -362,6 +378,7 @@ def main_evaluate() -> None:
                 min_hybrid_recall=args.min_hybrid_recall,
                 min_hybrid_mrr=args.min_hybrid_mrr,
                 model_load_seconds=model_load_seconds,
+                diagnostics=args.diagnostics,
             )
         else:
             with tempfile.TemporaryDirectory(prefix="cognitiveos-eval-") as temp_dir:
@@ -374,6 +391,7 @@ def main_evaluate() -> None:
                     min_hybrid_recall=args.min_hybrid_recall,
                     min_hybrid_mrr=args.min_hybrid_mrr,
                     model_load_seconds=model_load_seconds,
+                    diagnostics=args.diagnostics,
                 )
     except (ValueError, RuntimeError) as exc:
         parser.error(str(exc))

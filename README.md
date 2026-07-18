@@ -37,6 +37,7 @@ Implemented:
 - separate embedding SQLite builder with incremental reuse and atomic publish
 - read-only embedding index status CLI
 - opt-in `off|auto|required` semantic modes and RRF hybrid retrieval core
+- opt-in deterministic retrieval diagnostics for lexical, semantic, title, heading, backlink, freshness, and confidence evidence
 - Korean, English, and mixed-language semantic evaluation fixtures
 - pinned multilingual evaluation model and quality/performance harness
 - writeback permission design
@@ -99,6 +100,11 @@ Read-only tools:
 - `build_context_pack`
 
 No MCP tool writes to Markdown. The published `0.5.0` release remains read-only.
+
+`search_notes` accepts an optional `diagnostics: true` argument. It is off by
+default, preserving the existing lexical-only result shape. When requested,
+each result includes a `retrieval.diagnostics` object; see the retrieval
+fixture documentation for its score and evidence contract.
 
 ## Intel Mac Quick Start
 

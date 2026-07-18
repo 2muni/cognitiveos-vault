@@ -6,6 +6,7 @@ import re
 import sqlite3
 from collections import defaultdict
 from contextlib import closing
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -62,15 +63,21 @@ class RetrievalService:
         domain: str | None = None,
         tag: str | None = None,
         semantic_mode: str = "off",
+        diagnostics: bool = False,
     ) -> list[SearchResult]:
         if semantic_mode not in {"off", "auto", "required"}:
             raise ValueError("semantic_mode must be off, auto, or required")
         requested_limit = max(1, min(limit, 50))
         if semantic_mode == "off":
-            return self._search_lexical(query, note_type, requested_limit, status, domain, tag)
+            lexical = self._search_lexical(
+                query, note_type, requested_limit, status, domain, tag, diagnostics=diagnostics
+            )
+            return self._attach_lexical_diagnostics(query, lexical) if diagnostics else lexical
 
         candidate_limit = min(max(requested_limit * 4, 25), 50)
-        lexical = self._search_lexical(query, note_type, candidate_limit, status, domain, tag)
+        lexical = self._search_lexical(
+            query, note_type, candidate_limit, status, domain, tag, diagnostics=diagnostics
+        )
         try:
             semantic = self._search_semantic(
                 query,
@@ -86,8 +93,74 @@ class RetrievalService:
                 if isinstance(exc, SemanticUnavailableError):
                     raise
                 raise SemanticUnavailableError("semantic retrieval is unavailable") from exc
-            return lexical[:requested_limit]
-        return self._fuse_search_results(lexical, semantic, semantic_mode, requested_limit)
+            fallback = lexical[:requested_limit]
+            return self._attach_lexical_diagnostics(query, fallback) if diagnostics else fallback
+        fused = self._fuse_search_results(lexical, semantic, semantic_mode, requested_limit)
+        return self._attach_hybrid_diagnostics(query, fused) if diagnostics else fused
+
+    def _attach_lexical_diagnostics(
+        self, query: str, results: list[SearchResult]
+    ) -> list[SearchResult]:
+        evidence = self._diagnostic_evidence({result.note_id for result in results})
+        return [
+            replace(
+                result,
+                retrieval={
+                    "diagnostics": lexical_diagnostics(
+                        query,
+                        result,
+                        evidence.get(result.note_id, {}),
+                        (result.retrieval or {}).get("_lexical_components", {}),
+                    )
+                },
+            )
+            for result in results
+        ]
+
+    def _attach_hybrid_diagnostics(
+        self, query: str, results: list[SearchResult]
+    ) -> list[SearchResult]:
+        evidence = self._diagnostic_evidence({result.note_id for result in results})
+        diagnosed: list[SearchResult] = []
+        for result in results:
+            retrieval = dict(result.retrieval or {})
+            retrieval["diagnostics"] = hybrid_diagnostics(
+                query,
+                result,
+                evidence.get(result.note_id, {}),
+                retrieval.get("_lexical_components", {}),
+            )
+            retrieval.pop("_lexical_components", None)
+            diagnosed.append(replace(result, retrieval=retrieval))
+        return diagnosed
+
+    def _diagnostic_evidence(self, note_ids: set[str]) -> dict[str, dict[str, Any]]:
+        """Return read-only evidence for signals not used by the current scorer."""
+        if not note_ids:
+            return {}
+        placeholders = ",".join("?" for _ in note_ids)
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            confidence_rows = conn.execute(
+                f"""
+                SELECT note_id, value
+                FROM note_frontmatter
+                WHERE key = 'confidence' AND note_id IN ({placeholders})
+                """,
+                tuple(sorted(note_ids)),
+            ).fetchall()
+        confidence = {str(row["note_id"]): parse_confidence(row["value"]) for row in confidence_rows}
+        adjacency = self._graph_adjacency()
+        return {
+            note_id: {
+                "backlink_count": sum(
+                    "incoming" in relationship["directions"]
+                    for relationship in adjacency.get(note_id, {}).values()
+                ),
+                "confidence": confidence.get(note_id),
+            }
+            for note_id in note_ids
+        }
 
     def _search_lexical(
         self,
@@ -97,6 +170,8 @@ class RetrievalService:
         status: str | None,
         domain: str | None,
         tag: str | None,
+        *,
+        diagnostics: bool = False,
     ) -> list[SearchResult]:
         self.ensure_index()
         limit = max(1, min(limit, 50))
@@ -106,17 +181,19 @@ class RetrievalService:
             rows = self._search_fts(conn, query, note_type, candidate_limit, status, domain, tag)
             if not rows:
                 rows = self._search_like(conn, query, note_type, candidate_limit, status, domain, tag)
-            results = [
-                SearchResult(
+            results = []
+            for row in rows:
+                components = relevance_components(query, row)
+                results.append(SearchResult(
                     note_id=row["note_id"],
                     path=row["path"],
                     title=row["title"],
                     note_type=row["type"],
-                    score=search_relevance_score(query, row),
+                    score=components["score"],
                     matched_excerpt=row["matched_excerpt"] or "",
+                    retrieval={"_lexical_components": components} if diagnostics else None,
                 )
-                for row in rows
-            ]
+                )
             results.sort(key=lambda result: (-result.score, result.title, result.path))
             return results[:limit]
 
@@ -214,6 +291,13 @@ class RetrievalService:
                         "lexical_rank": lexical_rank,
                         "semantic_rank": semantic_rank,
                         "fusion_score": round(fusion_score, 8),
+                        **(
+                            {"_lexical_components": lexical_result.retrieval["_lexical_components"]}
+                            if lexical_result is not None
+                            and lexical_result.retrieval is not None
+                            and "_lexical_components" in lexical_result.retrieval
+                            else {}
+                        ),
                     },
                 )
             )
@@ -937,6 +1021,16 @@ def build_note_filters(
 
 
 def search_relevance_score(query: str, row: sqlite3.Row) -> float:
+    return relevance_components(query, row)["score"]
+
+
+def relevance_components(query: str, row: sqlite3.Row) -> dict[str, float]:
+    """Return the stable components of the existing lexical score.
+
+    This deliberately mirrors the legacy score rather than introducing a new
+    ranking algorithm.  Diagnostics can therefore explain a result without
+    changing lexical-only retrieval.
+    """
     terms = {term.lower() for term in search_terms(query)}
     title = str(row["title"] or "")
     heading_text = str(row["heading_text"] or "")
@@ -949,28 +1043,123 @@ def search_relevance_score(query: str, row: sqlite3.Row) -> float:
     heading_terms = keyword_set(heading_text)
     path_terms = keyword_set(path.replace("/", " ").replace("-", " ").replace("_", " "))
     excerpt_terms = keyword_set(excerpt)
-    score = float(row["score"] or 0.0)
+    lexical = float(row["score"] or 0.0)
+    title_score = 0.0
     title_lower = title.lower()
     query_lower = strip_markdown(query).lower().strip()
     if query_lower and query_lower == title_lower:
-        score += 12.0
+        title_score += 12.0
     elif query_lower and query_lower in title_lower:
-        score += 8.0
+        title_score += 8.0
     alias_lowers = [alias.casefold() for alias in aliases if alias.casefold() != title.casefold()]
     if query_lower and query_lower in alias_lowers:
-        score += 10.0
+        lexical += 10.0
     elif query_lower and any(query_lower in alias for alias in alias_lowers):
-        score += 6.0
-    score += 4.0 * len(terms.intersection(title_terms))
+        lexical += 6.0
+    title_score += 4.0 * len(terms.intersection(title_terms))
     alias_terms = keyword_set(" ".join(aliases))
-    score += 3.0 * len(terms.intersection(alias_terms))
-    score += 2.5 * len(terms.intersection(heading_terms))
-    score += 1.5 * len(terms.intersection(path_terms))
-    score += 0.5 * len(terms.intersection(excerpt_terms))
-    score += note_type_search_boost(note_type)
-    score += status_search_boost(status)
-    score += freshness_boost(row["mtime"])
-    return round(score, 6)
+    lexical += 3.0 * len(terms.intersection(alias_terms))
+    heading_score = 2.5 * len(terms.intersection(heading_terms))
+    lexical += 1.5 * len(terms.intersection(path_terms))
+    lexical += 0.5 * len(terms.intersection(excerpt_terms))
+    lexical += note_type_search_boost(note_type)
+    lexical += status_search_boost(status)
+    freshness_score = freshness_boost(row["mtime"])
+    score = round(lexical + title_score + heading_score + freshness_score, 6)
+    return {
+        "score": score,
+        "lexical": round(lexical, 6),
+        "title": round(title_score, 6),
+        "heading": round(heading_score, 6),
+        "freshness": round(freshness_score, 6),
+    }
+
+
+def lexical_diagnostics(
+    query: str,
+    result: SearchResult,
+    evidence: dict[str, Any],
+    components: dict[str, Any],
+) -> dict[str, Any]:
+    """Describe a lexical result without exposing source Markdown content."""
+    return {
+        "version": "retrieval-diagnostics-v0.1",
+        "mode": "lexical",
+        "score": result.score,
+        "contributions": {
+            "lexical": {"score": components.get("lexical", 0.0), "applied": True},
+            "semantic": {"score": 0.0, "applied": False, "rank": None},
+            "title": {"score": components.get("title", 0.0), "applied": True},
+            "heading": {"score": components.get("heading", 0.0), "applied": True},
+            "backlink": {
+                "score": 0.0,
+                "applied": False,
+                "incoming_count": evidence.get("backlink_count", 0),
+            },
+            "freshness": {"score": components.get("freshness", 0.0), "applied": True},
+            "confidence": {
+                "score": 0.0,
+                "applied": False,
+                "value": evidence.get("confidence"),
+            },
+        },
+    }
+
+
+def hybrid_diagnostics(
+    query: str,
+    result: SearchResult,
+    evidence: dict[str, Any],
+    components: dict[str, Any],
+) -> dict[str, Any]:
+    retrieval = result.retrieval or {}
+    lexical_rank = retrieval.get("lexical_rank")
+    semantic_rank = retrieval.get("semantic_rank")
+    lexical_score = 1.0 / (60 + lexical_rank) if isinstance(lexical_rank, int) else 0.0
+    semantic_score = 1.0 / (60 + semantic_rank) if isinstance(semantic_rank, int) else 0.0
+    return {
+        "version": "retrieval-diagnostics-v0.1",
+        "mode": "hybrid",
+        "score": result.score,
+        "contributions": {
+            "lexical": {"score": round(lexical_score, 8), "applied": lexical_rank is not None},
+            "semantic": {
+                "score": round(semantic_score, 8),
+                "applied": semantic_rank is not None,
+                "rank": semantic_rank,
+            },
+            "title": {
+                "score": components.get("title") if lexical_rank is not None else None,
+                "applied": lexical_rank is not None,
+            },
+            "heading": {
+                "score": components.get("heading") if lexical_rank is not None else None,
+                "applied": lexical_rank is not None,
+            },
+            "backlink": {
+                "score": 0.0,
+                "applied": False,
+                "incoming_count": evidence.get("backlink_count", 0),
+            },
+            "freshness": {
+                "score": components.get("freshness") if lexical_rank is not None else None,
+                "applied": lexical_rank is not None,
+            },
+            "confidence": {
+                "score": 0.0,
+                "applied": False,
+                "value": evidence.get("confidence"),
+            },
+        },
+    }
+
+
+def parse_confidence(value: Any) -> float | None:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return None
+    return confidence if math.isfinite(confidence) else None
 
 
 def note_type_search_boost(note_type: str) -> float:

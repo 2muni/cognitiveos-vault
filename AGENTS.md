@@ -26,13 +26,13 @@ When launching an Orca Codex terminal, use the exact command form below and
 select the model from this table—not the historical tier label:
 
 ```text
-codex --model gpt-5.6-terra -c model_reasoning_effort="minimal"
+codex --model gpt-5.6-terra -c model_reasoning_effort="low"
 codex --model gpt-5.6 -c model_reasoning_effort="medium"
 ```
 
 Task tier mapping:
 
-- `gpt-5.6-terra / minimal`: UI checks, status checks, small documentation edits, and routine Git operations
+- `gpt-5.6-terra / low`: UI checks, status checks, small documentation edits, and routine Git operations
 - `gpt-5.6-terra / low`: narrow implementation, focused tests, and small bug fixes
 - `gpt-5.6 / medium`: normal feature work, environment migration, retrieval changes, and release stabilization
 - `gpt-5.6 / high`: architecture, schema evolution, writeback design, and security review

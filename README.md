@@ -2,8 +2,8 @@
 
 CognitiveOS is a Markdown-first, local-first, MCP-addressable PKM system for an Obsidian vault.
 
-The latest published stable release is the read-only knowledge-contract and
-graph-aware retrieval release v0.4.0:
+The latest published stable release is the read-only operational-freshness
+release v0.5.0:
 
 - scans Markdown notes
 - parses frontmatter, headings, wikilinks, and Markdown links
@@ -123,32 +123,25 @@ seven CLI launchers functional. Reinstall after source changes when validating
 the installed CLI surface; source-based tests continue to read `src/`
 directly.
 
-## Install v0.4.0 Release Assets
+## Install v0.5.0 Release Assets
 
 The GitHub Release provides a universal Python wheel and source distribution:
 
 ```text
-https://github.com/2muni/cognitiveos-vault/releases/tag/v0.4.0
+https://github.com/2muni/cognitiveos-vault/releases/tag/v0.5.0
 ```
 
 Download either asset, verify its SHA-256 digest, then install the wheel with
 Python 3.11 or newer:
 
 ```bash
-shasum -a 256 cognitiveos-0.4.0-py3-none-any.whl
-python -m pip install cognitiveos-0.4.0-py3-none-any.whl
-```
-
-Expected release-asset digests:
-
-```text
-eeab9f871fb7399b3f8d953280f57a9f1a8cc0434b0f74d0030c512784bf3b69  cognitiveos-0.4.0-py3-none-any.whl
-f574b76b73b33812cf8ad0c117959726f9bf6b16dd7e11c86356fc13abaedb32  cognitiveos-0.4.0.tar.gz
+shasum -a 256 cognitiveos-0.5.0-py3-none-any.whl
+python -m pip install cognitiveos-0.5.0-py3-none-any.whl
 ```
 
 The wheel exposes `cognitiveos-index`, `cognitiveos-search`,
 `cognitiveos-mcp`, `cognitiveos-embed`, `cognitiveos-evaluate-embeddings`, and
-`cognitiveos-validate`.
+`cognitiveos-validate`, and `cognitiveos-status`.
 For local development or the optional semantic runtime, clone the repository
 and use the environment setup described below instead.
 
@@ -181,12 +174,12 @@ JSON and strict validation are explicit:
 PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_validate; raise SystemExit(main_validate())" . --scope user --strict --format json
 ```
 
-The validator does not create an index or modify Markdown. The public v0.4.0
+The validator does not create an index or modify Markdown. The public v0.5.0
 wheel includes the `cognitiveos-validate` entry point.
 
 ## Inspect Vault and Derived State
 
-The v0.5 development tree provides a unified read-only status command:
+The v0.5 release provides a unified read-only status command:
 
 ```bash
 PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_status; raise SystemExit(main_status())" . --format text
@@ -201,7 +194,7 @@ PYTHONPATH=src ./.venv/bin/python -c "from cognitiveos.cli import main_status; r
 The command reports validation, lexical index freshness, optional embedding
 coverage, and `vault-manifest-v0.1`. It creates no index, loads no model, uses
 no network, and returns no note text, frontmatter values, or absolute paths.
-The published v0.4.0 wheel predates this seventh CLI entry point.
+The published v0.5.0 wheel includes this seventh CLI entry point.
 
 ## Build the Local Index
 
@@ -278,7 +271,7 @@ Open the vault root in VS Code and confirm the Codex extension loads the `cognit
 
 ## Writeback Policy
 
-Writeback is not implemented in v0.4.0.
+Writeback is not implemented in v0.5.0.
 
 The future writeback design is documented in:
 
@@ -429,23 +422,29 @@ The published v0.4.0 release notes are maintained in:
 System/docs/release-notes-v0.4.0.md
 ```
 
-The current v0.4 implementation and release gates are maintained in:
+The published v0.5.0 release notes are maintained in:
 
 ```text
-System/docs/release-v0.4.md
+System/docs/release-notes-v0.5.0.md
+```
+
+The v0.5 implementation and release gates are maintained in:
+
+```text
+System/docs/release-v0.5.md
 ```
 
 Current package version:
 
 ```text
-0.5.0a1
+0.5.0
 ```
 
 Published stable release:
 
 ```text
-v0.4.0
+v0.5.0
 ```
 
-`v0.4.0` was published on 2026-07-14 after the planned note-contract,
-graph-aware retrieval, packaging, dual-runtime, and release gates completed.
+`v0.5.0` was published on 2026-07-18 after the operational-freshness,
+incremental-publication, packaging, dual-runtime, and release gates completed.

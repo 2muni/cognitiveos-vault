@@ -1,6 +1,6 @@
 """CognitiveOS read-only PKM index and retrieval core."""
 
-__version__ = "0.5.0a1"
+__version__ = "0.5.0"
 
 from .embeddings import (
     EmbeddingConfigurationError,

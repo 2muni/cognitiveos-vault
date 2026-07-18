@@ -62,7 +62,7 @@ from cognitiveos.mcp_server import handle_message, set_fastmcp_server_version
 from cognitiveos.context_quality import context_pack_quality, is_vault_relative_path, validate_grounded_answer
 from cognitiveos.models import ContextPack, SearchResult
 from cognitiveos.parser import parse_markdown_file
-from cognitiveos.retrieval import RetrievalService, estimate_tokens, select_diverse_results
+from cognitiveos.retrieval import RetrievalService, estimate_tokens, relevance_components, select_diverse_results
 from cognitiveos.runtime import (
     SemanticRuntimeConfig,
     build_runtime_service,
@@ -1839,16 +1839,37 @@ links:
         diagnostic = first[0].retrieval["diagnostics"]
         contributions = diagnostic["contributions"]
         self.assertEqual(diagnostic["mode"], "lexical")
-        self.assertAlmostEqual(
-            sum(contributions[key]["score"] for key in ("lexical", "title", "heading", "freshness")),
+        self.assertEqual(
+            round(sum(contributions[key]["score"] for key in ("lexical", "title", "heading", "freshness")), 6),
             first[0].score,
-            places=6,
         )
         self.assertFalse(contributions["semantic"]["applied"])
         self.assertFalse(contributions["backlink"]["applied"])
         self.assertEqual(contributions["backlink"]["incoming_count"], 1)
         self.assertFalse(contributions["confidence"]["applied"])
         self.assertEqual(contributions["confidence"]["value"], 0.7)
+
+    def test_lexical_diagnostic_components_allocate_the_six_decimal_residual(self) -> None:
+        components = relevance_components(
+            "Diagnostic Title",
+            {
+                "score": 9.4784403,
+                "title": "Diagnostic Title",
+                "heading_text": "",
+                "path": "",
+                "type": "",
+                "status": "",
+                "matched_excerpt": "",
+                "alias_text": "",
+                "mtime": 1_000_003_000,
+            },
+        )
+
+        self.assertEqual(29.578441, components["score"])
+        self.assertEqual(
+            components["score"],
+            round(sum(components[key] for key in ("lexical", "title", "heading", "freshness")), 6),
+        )
 
     def test_graph_adjacency_cache_hits_and_invalidates_after_reindex(self) -> None:
         self.write_note(

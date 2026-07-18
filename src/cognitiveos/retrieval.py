@@ -1070,13 +1070,21 @@ def relevance_components(query: str, row: sqlite3.Row) -> dict[str, float]:
     lexical += note_type_search_boost(note_type)
     lexical += status_search_boost(status)
     freshness_score = freshness_boost(row["mtime"])
+    # The public score is a six-decimal retrieval contract.  Allocate its
+    # rounding residual to the lexical contribution so that independently
+    # serialized diagnostics add back to the score on every supported Python
+    # and SQLite build without changing the ranking score itself.
+    rounded_title = round(title_score, 6)
+    rounded_heading = round(heading_score, 6)
+    rounded_freshness = round(freshness_score, 6)
     score = round(lexical + title_score + heading_score + freshness_score, 6)
+    rounded_lexical = round(score - rounded_title - rounded_heading - rounded_freshness, 6)
     return {
         "score": score,
-        "lexical": round(lexical, 6),
-        "title": round(title_score, 6),
-        "heading": round(heading_score, 6),
-        "freshness": round(freshness_score, 6),
+        "lexical": rounded_lexical,
+        "title": rounded_title,
+        "heading": rounded_heading,
+        "freshness": rounded_freshness,
     }
 
 

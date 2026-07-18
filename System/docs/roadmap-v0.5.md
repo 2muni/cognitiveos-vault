@@ -2,8 +2,8 @@
 
 ## Status
 
-Design approved on 2026-07-14. Units 1 through 4 are complete, including the
-stabilization audit. A separate release-candidate decision remains pending.
+Design approved on 2026-07-14. Units 1 through 4 and the release-candidate audit
+are complete. Final `0.5.0` release preparation remains pending.
 
 The latest published stable release remains `v0.4.0`. This plan defines the
 next read-only implementation boundary; it does not authorize writeback,
@@ -328,7 +328,8 @@ Current checkpoint:
 
 ## Release Decision
 
-Feature completion does not imply publication. After all four units pass, a
-separate release-candidate audit must decide whether the package becomes
-`0.5.0` and whether GitHub artifacts are published. Until then, `v0.4.0`
-remains the stable release.
+Feature completion does not imply publication. The release-candidate audit
+passed on 2026-07-18 against integrated `main` commit `3cd12ef` and approved a
+dedicated final-release branch to prepare package version `0.5.0` and release
+notes. Exact final-commit verification and explicit publication approval remain
+required; until then, `v0.4.0` remains the stable release.

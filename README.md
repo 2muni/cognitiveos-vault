@@ -25,6 +25,8 @@ Implemented:
 - structured source summaries
 - structured context packs
 - deterministic token budgets and evidence allocation
+- deterministic context-pack quality checks for evidence density, grounded content,
+  vault-relative paths, and stable fingerprints
 - explicit text/JSON CLI output formats
 - deterministic read-only note contract validation and v0.2 templates
 - deterministic vault manifest and unified read-only derived-state status
@@ -105,6 +107,12 @@ No MCP tool writes to Markdown. The published `0.5.0` release remains read-only.
 default, preserving the existing lexical-only result shape. When requested,
 each result includes a `retrieval.diagnostics` object; see the retrieval
 fixture documentation for its score and evidence contract.
+
+`build_context_pack` remains lexical-only by default and now adds an additive
+`quality` report. It is derived solely from returned pack metadata and
+extractive evidence: no private Markdown is copied, no model is loaded, and no
+vault write occurs. See `System/docs/context-pack-quality-v0.1.md` for the
+mechanical checks and the opt-in downstream answer-validation helper.
 
 ## Intel Mac Quick Start
 

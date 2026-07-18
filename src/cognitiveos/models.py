@@ -73,3 +73,4 @@ class ContextPack:
     evidence_paths: list[str] = field(default_factory=list)
     stats: dict[str, Any] = field(default_factory=dict)
     budget: dict[str, Any] = field(default_factory=dict)
+    quality: dict[str, Any] = field(default_factory=dict)

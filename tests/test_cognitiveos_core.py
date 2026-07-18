@@ -59,7 +59,8 @@ from cognitiveos.evaluation import (
     recall_at_k,
 )
 from cognitiveos.mcp_server import handle_message, set_fastmcp_server_version
-from cognitiveos.models import SearchResult
+from cognitiveos.context_quality import context_pack_quality, is_vault_relative_path, validate_grounded_answer
+from cognitiveos.models import ContextPack, SearchResult
 from cognitiveos.parser import parse_markdown_file
 from cognitiveos.retrieval import RetrievalService, estimate_tokens, select_diverse_results
 from cognitiveos.runtime import (
@@ -2497,6 +2498,68 @@ Project heading match.
         self.assertFalse(full.budget["truncated"])
         self.assertGreater(len(full.context), len(first.context))
         self.assertGreaterEqual(len(full.sources[0]["evidence"]), len(first.sources[0]["evidence"]))
+
+    def test_context_pack_quality_reports_grounded_relative_and_stable_evidence(self) -> None:
+        self.write_note(
+            "nested/source.md",
+            "---\nid: quality_source\ntype: source\ntitle: Quality Source\n---\n# Quality Source\n\n"
+            "Deterministic evidence stays local and cites a vault-relative path.",
+        )
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        first = service.build_context_pack("Deterministic evidence", limit=1, token_budget=512)
+        second = service.build_context_pack("Deterministic evidence", limit=1, token_budget=512)
+
+        self.assertEqual(first.quality["version"], "context-pack-quality-v0.1")
+        self.assertEqual(first.quality["status"], "pass")
+        self.assertEqual(first.quality["checks"]["evidence_density"]["ratio"], 1.0)
+        self.assertEqual(first.quality["checks"]["vault_relative_paths"]["invalid_path_count"], 0)
+        self.assertEqual(
+            first.quality["checks"]["grounded_content"]["grounded_item_count"],
+            first.quality["checks"]["grounded_content"]["rendered_item_count"],
+        )
+        self.assertEqual(
+            first.quality["checks"]["stability"]["fingerprint"],
+            second.quality["checks"]["stability"]["fingerprint"],
+        )
+
+        answer_quality = validate_grounded_answer(
+            "Deterministic evidence stays local.",
+            ["nested/source.md"],
+            first,
+        )
+        self.assertEqual(answer_quality["status"], "pass")
+        self.assertEqual(answer_quality["valid_citation_count"], 1)
+
+    def test_context_pack_quality_rejects_out_of_vault_paths_and_ungrounded_answers(self) -> None:
+        self.assertTrue(is_vault_relative_path("concepts/local.md"))
+        for path in ("../outside.md", "/private/note.md", "concepts\\local.md", ""):
+            with self.subTest(path=path):
+                self.assertFalse(is_vault_relative_path(path))
+
+        pack = ContextPack(
+            query="test",
+            results=[SearchResult("source", "../outside.md", "Source", "source", 1.0, "Evidence")],
+            context="[1] Source\npath: ../outside.md\ntype: source\nexcerpt: Evidence\nevidence: Evidence",
+            sources=[
+                {
+                    "note_id": "source",
+                    "path": "../outside.md",
+                    "key_points": [],
+                    "evidence": ["Evidence"],
+                }
+            ],
+            evidence_paths=["../outside.md"],
+        )
+        quality = context_pack_quality(pack)
+
+        self.assertEqual(quality["status"], "fail")
+        self.assertEqual(quality["checks"]["vault_relative_paths"]["status"], "fail")
+        self.assertEqual(
+            validate_grounded_answer("Unsupported assertion.", ["../outside.md"], pack)["status"],
+            "fail",
+        )
 
     def test_token_estimator_and_direct_service_budget_validation(self) -> None:
         self.assertEqual(estimate_tokens("abcd"), 1)

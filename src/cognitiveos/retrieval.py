@@ -767,7 +767,7 @@ class RetrievalService:
 
         context = render_context(source_lines)
         estimated_tokens = estimate_tokens(context)
-        return ContextPack(
+        pack = ContextPack(
             query=query,
             results=included_results,
             context=context,
@@ -795,6 +795,10 @@ class RetrievalService:
                 "estimator": "local-heuristic-v1",
             },
         )
+        # Local import avoids a module cycle while keeping quality checks pure.
+        from .context_quality import context_pack_quality
+
+        return ContextPack(**{**pack.__dict__, "quality": context_pack_quality(pack)})
 
     def _search_fts(
         self,
@@ -895,6 +899,7 @@ def context_pack_to_dict(pack: ContextPack) -> dict[str, Any]:
         "evidence_paths": pack.evidence_paths,
         "stats": pack.stats,
         "budget": pack.budget,
+        "quality": pack.quality,
     }
 
 

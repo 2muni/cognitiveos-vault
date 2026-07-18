@@ -15,9 +15,11 @@ reasoning_effort="$2"
 shift 2
 
 case "$model_id" in
-  gpt-5.6-terra|gpt-5.6|gpt-5.3-codex-spark) ;;
+  # This repository is operated through Codex with a ChatGPT account.  The
+  # account currently supports Terra, but rejects gpt-5.6 and preview IDs.
+  gpt-5.6-terra) ;;
   *)
-    echo "unsupported model id: $model_id" >&2
+    echo "unsupported model id for this Codex account: $model_id (use gpt-5.6-terra)" >&2
     exit 64
     ;;
 esac

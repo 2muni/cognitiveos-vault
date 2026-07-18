@@ -11,11 +11,14 @@ project default is pinned in `.codex/config.toml` for cost-efficient work; a
 task may explicitly select the stronger official model when its tier requires
 it.
 
-Official model IDs for Orca terminal commands:
+Account-compatible model ID for Orca terminal commands in this project:
 
-- `gpt-5.6-terra`: cost-efficient scans, status checks, documentation, routine Git, and other read-heavy work
-- `gpt-5.6`: normal implementation, validation, architecture, security, and release work
-- `gpt-5.3-codex-spark`: optional ChatGPT Pro research-preview model for text-only iteration; do not assume it is available
+- `gpt-5.6-terra`: the currently supported Codex model for this ChatGPT account
+
+Do not pass `gpt-5.6`, `gpt-5.3-codex-spark`, or any historical/invented model
+ID in this project. The ChatGPT account rejects `gpt-5.6` with an invalid-model
+400 error. If account capabilities change, verify the official Codex manual
+and update the launcher allowlist before using another ID.
 
 Supported `model_reasoning_effort` values are `none`, `minimal`, `low`,
 `medium`, `high`, `xhigh`, `max`, and `ultra`, subject to account/model
@@ -27,7 +30,7 @@ select the model from this table—not the historical tier label:
 
 ```text
 codex --model gpt-5.6-terra -c model_reasoning_effort="low"
-codex --model gpt-5.6 -c model_reasoning_effort="medium"
+codex --model gpt-5.6-terra -c model_reasoning_effort="high"
 ```
 
 For Orca worktrees, prefer the repository launcher so an omitted or invalid
@@ -35,7 +38,7 @@ model/effort cannot silently fall back to the client default:
 
 ```text
 bash scripts/run-orca-codex.sh gpt-5.6-terra low
-bash scripts/run-orca-codex.sh gpt-5.6 high
+bash scripts/run-orca-codex.sh gpt-5.6-terra high
 ```
 
 The launcher requires both values, validates them against the supported IDs
@@ -48,9 +51,9 @@ Task tier mapping:
 
 - `gpt-5.6-terra / low`: UI checks, status checks, small documentation edits, and routine Git operations
 - `gpt-5.6-terra / low`: narrow implementation, focused tests, and small bug fixes
-- `gpt-5.6 / medium`: normal feature work, environment migration, retrieval changes, and release stabilization
-- `gpt-5.6 / high`: architecture, schema evolution, writeback design, and security review
-- `gpt-5.6 / xhigh` or `max`: high-impact migrations, authorization boundary changes, destructive-operation design, and incident analysis
+- `gpt-5.6-terra / medium`: normal feature work, environment migration, retrieval changes, and release stabilization
+- `gpt-5.6-terra / high`: architecture, schema evolution, writeback design, and security review
+- `gpt-5.6-terra / xhigh` or `max`: high-impact migrations, authorization boundary changes, destructive-operation design, and incident analysis
 
 Before every Orca handoff, record the exact model ID and reasoning value in the
 task brief. If a model launch returns an invalid-model or invalid-effort error,

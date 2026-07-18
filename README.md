@@ -179,9 +179,30 @@ From the vault root:
 Expected current result:
 
 ```text
-Ran 92 tests
+Ran 98 tests
 OK
 ```
+
+## Run Reproducible Release Gates
+
+The platform-neutral release verifier runs the warning-strict test suite,
+checks package and read-only MCP identities, builds the wheel and source
+distribution twice, rejects private or derived artifact content, and installs
+the wheel into an isolated consumer environment to exercise all seven CLI
+entry points:
+
+```bash
+./.venv/bin/python scripts/verify_release.py \
+  --format text \
+  --report dist/release-gates/report.json
+```
+
+Artifacts and the machine-readable `cognitiveos-release-gates-v0.1` report are
+written below `dist/release-gates/`, which is disposable and Git-ignored. The
+verifier uses no private vault content, does not build an actual-vault index,
+does not download a model, and keeps semantic retrieval off. GitHub Actions
+runs the default runtime matrix, an offline local-embedding dependency job,
+and these reproducible release gates for pull requests and `main`.
 
 ## Validate Notes
 

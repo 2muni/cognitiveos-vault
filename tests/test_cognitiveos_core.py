@@ -50,6 +50,7 @@ from cognitiveos.embedding_index import (
 from cognitiveos.indexer import VaultIndex
 from cognitiveos.evaluation import (
     EVALUATION_VERSION,
+    RETRIEVAL_QUALITY_FIXTURE_VERSION,
     evaluate_retrieval,
     load_evaluation_cases,
     mean_reciprocal_rank,
@@ -138,6 +139,13 @@ class KeywordTestEmbeddingProvider:
             norm = math.sqrt(sum(value * value for value in vector))
             vectors.append([value / norm for value in vector])
         return vectors
+
+
+def report_without_runtime(report: dict[str, object]) -> dict[str, object]:
+    """Keep deterministic evaluation assertions independent of measured timings."""
+    stable = json.loads(json.dumps(report))
+    stable.pop("runtime")
+    return stable
 
 
 class CognitiveOSTestCase(unittest.TestCase):
@@ -779,6 +787,74 @@ class EmbeddingEvaluationTests(CognitiveOSTestCase):
     def test_invalid_fixture_is_rejected(self) -> None:
         invalid = self.write_note("invalid.json", json.dumps({"version": "wrong", "cases": []}))
         with self.assertRaisesRegex(ValueError, "fixture version"):
+            load_evaluation_cases(invalid)
+
+    def test_retrieval_quality_fixture_validation_and_deterministic_breakdowns(self) -> None:
+        cases_path = Path(__file__).resolve().parents[1] / "System" / "evaluation" / (
+            "retrieval-quality-v0.7.json"
+        )
+        cases = load_evaluation_cases(cases_path)
+
+        self.assertEqual(len(cases), 12)
+        self.assertTrue(all(case.fixture_version == RETRIEVAL_QUALITY_FIXTURE_VERSION for case in cases))
+        self.assertEqual({case.language for case in cases}, {"ko", "en", "mixed"})
+        self.assertEqual(
+            {signal for case in cases for signal in case.signals},
+            {"aliases", "backlinks", "graph_evidence", "headings", "recency", "title", "typed_links"},
+        )
+
+        first = evaluate_retrieval(
+            FIXTURES / "retrieval_quality_vault",
+            KeywordTestEmbeddingProvider(),
+            cases,
+            self.root / "quality-first",
+            min_hybrid_recall=0.0,
+            min_hybrid_mrr=0.0,
+        )
+        second = evaluate_retrieval(
+            FIXTURES / "retrieval_quality_vault",
+            KeywordTestEmbeddingProvider(),
+            cases,
+            self.root / "quality-second",
+            min_hybrid_recall=0.0,
+            min_hybrid_mrr=0.0,
+        )
+
+        self.assertEqual(first["evaluation_version"], RETRIEVAL_QUALITY_FIXTURE_VERSION)
+        self.assertEqual(set(first["breakdowns"]), {"language", "signal"})
+        self.assertEqual(list(first["breakdowns"]["language"]), ["en", "ko", "mixed"])
+        self.assertEqual(
+            list(first["breakdowns"]["signal"]),
+            ["aliases", "backlinks", "graph_evidence", "headings", "recency", "title", "typed_links"],
+        )
+        self.assertTrue(all(item["case_count"] > 0 for item in first["breakdowns"]["signal"].values()))
+        self.assertEqual(report_without_runtime(first), report_without_runtime(second))
+
+    def test_retrieval_quality_fixture_rejects_invalid_contracts(self) -> None:
+        fixture_path = Path(__file__).resolve().parents[1] / "System" / "evaluation" / (
+            "retrieval-quality-v0.7.json"
+        )
+        payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+        invalid_cases = (
+            ("missing signals", lambda case: case.pop("signals"), "signals"),
+            ("unknown signal", lambda case: case.update(signals=["not-a-signal"]), "unknown signals"),
+            ("empty relevance", lambda case: case.update(relevant_note_ids=[]), "relevant_note_ids"),
+            ("absolute path", lambda case: case.update(relevant_paths=["/private/note.md"]), "vault-relative"),
+            ("traversal path", lambda case: case.update(relevant_paths=["../note.md"]), "vault-relative"),
+            ("windows path", lambda case: case.update(relevant_paths=["C:\\\\note.md"]), "vault-relative"),
+        )
+        for label, mutate, message in invalid_cases:
+            with self.subTest(label=label):
+                candidate = json.loads(json.dumps(payload))
+                mutate(candidate["cases"][0])
+                invalid = self.write_note(f"{label}.json", json.dumps(candidate))
+                with self.assertRaisesRegex(ValueError, message):
+                    load_evaluation_cases(invalid)
+
+        duplicate = json.loads(json.dumps(payload))
+        duplicate["cases"][1]["id"] = duplicate["cases"][0]["id"]
+        invalid = self.write_note("duplicate-id.json", json.dumps(duplicate))
+        with self.assertRaisesRegex(ValueError, "duplicates"):
             load_evaluation_cases(invalid)
 
 

@@ -16,6 +16,7 @@ from cognitiveos.atomic_apply import (
     AtomicSingleFileApplier,
     provision_audit_boundary,
 )
+from cognitiveos.safety import SKIPPED_DIRS, WRITEBACK_DENIED_DIRS, WRITEBACK_DENIED_DIR_PREFIXES
 
 from writeback_support import TestOwnerAuthority
 
@@ -462,37 +463,45 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
                         audit_key=AUDIT_KEY,
                     )
 
-    def test_nested_operational_directories_are_case_aware_and_denied(self) -> None:
-        denied_components = (
-            ".git",
-            ".GIT",
-            ".obsidian",
-            ".ObSiDiAn",
-            ".pkm-index",
-            ".PKM-INDEX",
-            ".pytest_cache",
-            ".mYpY_cAcHe",
-            ".RuFf_CaChE",
-            ".TOX",
-            ".nOx",
-            "__PyCache__",
-            ".VENV",
-            "VeNv",
-            ".eggs",
-            "NoDe_MoDuLeS",
-            "Assets",
-            "sYsTeM",
-            "scripts",
-            "SRC",
-            "tests",
-            "dist",
-            "build",
-        )
-        for component in denied_components:
+    def test_canonical_operational_directories_are_denied_in_nested_trees(self) -> None:
+        # Iterate over the policy rather than a test-local duplicate: new
+        # scanner-owned operational directories must automatically be denied
+        # by atomic apply as well.
+        for component in sorted(WRITEBACK_DENIED_DIRS):
             with self.subTest(component=component):
                 with self.assertRaisesRegex(ApplyRefused, "policy_denied"):
-                    self.propose(path=f"Notes/{component}/policy-bypass.md")
-                self.assertFalse((self.notes / component / "policy-bypass.md").exists())
+                    self.propose(path=f"Notes/projects/review/{component}/archive/policy-bypass.md")
+                self.assertFalse((self.notes / "projects" / "review" / component).exists())
+
+    def test_trash_paths_and_case_variants_are_denied_at_every_depth(self) -> None:
+        self.assertIn(".trash", SKIPPED_DIRS)
+        denied_paths = (
+            "Notes/.trash/accepted.md",
+            "Notes/.TrAsH/accepted.md",
+            "Notes/projects/.trash/archive/accepted.md",
+            "Notes/projects/.TrAsH/archive/accepted.md",
+        )
+        for path in denied_paths:
+            with self.subTest(path=path), self.assertRaisesRegex(ApplyRefused, "policy_denied"):
+                self.propose(path=path)
+
+    def test_trash_paths_and_case_variants_are_invalid_allowed_roots(self) -> None:
+        for allowed_root in ("Notes/.trash", "Notes/.TrAsH", "Notes/projects/.trash"):
+            with self.subTest(allowed_root=allowed_root), self.assertRaisesRegex(ApplyRefused, "invalid_allowed_root"):
+                AtomicSingleFileApplier(
+                    self.root,
+                    allowed_roots=(allowed_root,),
+                    audit_directory=self.audit_directory,
+                    audit_boundary_path=self.audit_boundary,
+                    owner_authority=TestOwnerAuthority(),
+                    audit_key=AUDIT_KEY,
+                )
+
+    def test_canonical_operational_directory_patterns_are_case_aware(self) -> None:
+        for prefix in WRITEBACK_DENIED_DIR_PREFIXES:
+            for component in (f"{prefix}fixture", f"{prefix.swapcase()}fixture"):
+                with self.subTest(component=component), self.assertRaisesRegex(ApplyRefused, "policy_denied"):
+                    self.propose(path=f"Notes/projects/{component}/policy-bypass.md")
 
     def test_session_end_and_cancellation_invalidate_approved_tokens(self) -> None:
         session_ended = self.propose(path="Notes/session-ended.md")

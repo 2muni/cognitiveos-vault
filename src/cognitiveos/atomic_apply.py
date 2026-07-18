@@ -39,6 +39,7 @@ from .approval import (
     TrustedOwnerAuthority,
     sha256_checksum,
 )
+from .safety import is_writeback_denied_directory_component
 from .writeback_proposal import (
     AUDIT_SCHEMA_VERSION,
     POLICY_VERSION,
@@ -666,35 +667,6 @@ class AtomicSingleFileApplier:
     proposal identifier, client-provided fingerprint, or client-provided owner
     session binding.
     """
-
-    # These are policy names, not merely top-level directory names.  A note
-    # namespace must never contain a route into an operational subtree just
-    # because that subtree is nested below an otherwise allowed note root.
-    _DENIED_PATH_COMPONENTS = frozenset(
-        name.casefold()
-        for name in {
-            ".git",
-            ".obsidian",
-            ".pkm-index",
-            ".venv",
-            "venv",
-            ".pytest_cache",
-            ".mypy_cache",
-            ".ruff_cache",
-            ".tox",
-            ".nox",
-            "__pycache__",
-            ".eggs",
-            "node_modules",
-            "Assets",
-            "System",
-            "scripts",
-            "src",
-            "tests",
-            "dist",
-            "build",
-        }
-    )
 
     def __init__(
         self,
@@ -1363,9 +1335,12 @@ class AtomicSingleFileApplier:
         finally:
             os.close(current)
 
-    @classmethod
-    def _assert_no_denied_path_components(cls, components: tuple[str, ...] | list[str]) -> None:
-        if any(component.casefold() in cls._DENIED_PATH_COMPONENTS for component in components):
+    @staticmethod
+    def _assert_no_denied_path_components(components: tuple[str, ...] | list[str]) -> None:
+        # The shared safety policy is evaluated for *every* component, not
+        # merely the configured root or its first segment.  This prevents a
+        # nested operational tree from becoming an allowed note namespace.
+        if any(is_writeback_denied_directory_component(component) for component in components):
             raise ApplyRefused("policy_denied")
 
     @staticmethod

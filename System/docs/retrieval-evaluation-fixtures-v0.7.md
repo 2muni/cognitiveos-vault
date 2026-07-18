@@ -32,6 +32,31 @@ The evaluation report adds sorted, timing-free `breakdowns.language` and
 hybrid Recall@k and MRR. A case with multiple signals participates in every
 declared signal breakdown.
 
+## Retrieval diagnostics contract
+
+`RetrievalService.search_notes(..., diagnostics=True)` adds a
+`retrieval.diagnostics` object without changing the default result contract.
+The basic MCP `search_notes` tool exposes the same opt-in `diagnostics` boolean;
+the MCP tool count remains nine. `evaluate_retrieval(..., diagnostics=True)`
+adds `retrieval_diagnostics` to each case, and the evaluation CLI provides an
+equivalent `--diagnostics` flag.
+
+Diagnostics use `retrieval-diagnostics-v0.1` and contain a deterministic
+`contributions` mapping for `lexical`, `semantic`, `title`, `heading`,
+`backlink`, `freshness`, and `confidence`. A contribution has an `applied`
+flag and score. Lexical mode reports the exact existing lexical score split
+into lexical, title, heading, and freshness parts. Hybrid mode reports the
+existing reciprocal-rank lexical and semantic fusion values; title, heading,
+and freshness are evidence from the lexical candidate, rather than additional
+hybrid score components.
+
+Backlink counts and numeric frontmatter `confidence` are available read-only
+evidence but are not current search-ranking inputs, so both explicitly report
+`score: 0.0` and `applied: false`. This makes the absence of a ranking effect
+observable without changing the ranking algorithm. Diagnostics contain only
+indexed values and vault-relative identifiers already present in results; they
+do not read or return extra source Markdown.
+
 ## Safety and execution
 
 The default retrieval path remains `semantic_mode="off"`. The normal automated

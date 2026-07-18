@@ -52,6 +52,7 @@ def main() -> None:
         domain: str | None = None,
         tag: str | None = None,
         semantic_mode: str = "off",
+        diagnostics: bool = False,
     ) -> list[dict[str, Any]]:
         """Search indexed Markdown notes."""
         query = require_text("query", query)
@@ -65,6 +66,7 @@ def main() -> None:
                 domain=domain,
                 tag=tag,
                 semantic_mode=normalize_semantic_mode(semantic_mode),
+                diagnostics=normalize_diagnostics(diagnostics),
             )
         ]
 
@@ -217,6 +219,7 @@ def call_tool(
                     domain=optional_text(arguments.get("domain")),
                     tag=optional_text(arguments.get("tag")),
                     semantic_mode=normalize_semantic_mode(arguments.get("semantic_mode")),
+                    diagnostics=normalize_diagnostics(arguments.get("diagnostics", False)),
                 )
             ]
         elif name == "read_note":
@@ -291,6 +294,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                     "domain": {"type": "string"},
                     "tag": {"type": "string"},
                     "semantic_mode": {"type": "string", "enum": ["off", "auto", "required"]},
+                    "diagnostics": {"type": "boolean", "default": False},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 50},
                 },
                 "required": ["query"],
@@ -450,6 +454,12 @@ def normalize_semantic_mode(value: Any) -> str:
         return "off"
     if not isinstance(value, str) or value not in {"off", "auto", "required"}:
         raise ToolInputError("invalid_argument", "semantic_mode must be off, auto, or required")
+    return value
+
+
+def normalize_diagnostics(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ToolInputError("invalid_argument", "diagnostics must be a boolean")
     return value
 
 

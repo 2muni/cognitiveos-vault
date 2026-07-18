@@ -830,6 +830,30 @@ class EmbeddingEvaluationTests(CognitiveOSTestCase):
         self.assertTrue(all(item["case_count"] > 0 for item in first["breakdowns"]["signal"].values()))
         self.assertEqual(report_without_runtime(first), report_without_runtime(second))
 
+    def test_retrieval_quality_fixture_can_include_deterministic_diagnostics(self) -> None:
+        cases_path = Path(__file__).resolve().parents[1] / "System" / "evaluation" / (
+            "retrieval-quality-v0.7.json"
+        )
+        report = evaluate_retrieval(
+            FIXTURES / "retrieval_quality_vault",
+            KeywordTestEmbeddingProvider(),
+            load_evaluation_cases(cases_path),
+            self.root / "quality-diagnostics",
+            min_hybrid_recall=0.0,
+            min_hybrid_mrr=0.0,
+            diagnostics=True,
+        )
+
+        diagnostics = report["cases"][0]["retrieval_diagnostics"]
+        lexical = diagnostics["lexical"][0]["retrieval"]["diagnostics"]
+        hybrid = diagnostics["hybrid"][0]["retrieval"]["diagnostics"]
+        self.assertEqual(lexical["version"], "retrieval-diagnostics-v0.1")
+        self.assertEqual(hybrid["mode"], "hybrid")
+        self.assertEqual(
+            set(lexical["contributions"]),
+            {"lexical", "semantic", "title", "heading", "backlink", "freshness", "confidence"},
+        )
+
     def test_retrieval_quality_fixture_rejects_invalid_contracts(self) -> None:
         fixture_path = Path(__file__).resolve().parents[1] / "System" / "evaluation" / (
             "retrieval-quality-v0.7.json"
@@ -1732,6 +1756,63 @@ Semantic retrieval links to [[Beta]].
 
 
 class RetrievalTests(CognitiveOSTestCase):
+    def test_lexical_diagnostics_are_deterministic_and_do_not_change_default_output(self) -> None:
+        self.write_note(
+            "diagnostic.md",
+            """---
+id: diagnostic_target
+type: concept
+title: Diagnostic Title
+status: evergreen
+confidence: 0.7
+---
+# Diagnostic Title
+
+## Retrieval heading
+
+Lexical diagnostic evidence.
+""",
+        )
+        self.write_note(
+            "backlink.md",
+            """---
+id: diagnostic_backlink
+type: source
+title: Diagnostic backlink
+links:
+  - diagnostic_target
+---
+# Diagnostic backlink
+""",
+        )
+        self.index()
+        service = RetrievalService(self.root, self.db_path)
+
+        default = service.search_notes("Diagnostic Title")
+        first = service.search_notes("Diagnostic Title", diagnostics=True)
+        second = service.search_notes("Diagnostic Title", diagnostics=True)
+        fallback = service.search_notes(
+            "Diagnostic Title", semantic_mode="auto", diagnostics=True
+        )
+
+        self.assertEqual(default[0].note_id, first[0].note_id)
+        self.assertIsNone(default[0].retrieval)
+        self.assertEqual(first, second)
+        self.assertEqual(first, fallback)
+        diagnostic = first[0].retrieval["diagnostics"]
+        contributions = diagnostic["contributions"]
+        self.assertEqual(diagnostic["mode"], "lexical")
+        self.assertAlmostEqual(
+            sum(contributions[key]["score"] for key in ("lexical", "title", "heading", "freshness")),
+            first[0].score,
+            places=6,
+        )
+        self.assertFalse(contributions["semantic"]["applied"])
+        self.assertFalse(contributions["backlink"]["applied"])
+        self.assertEqual(contributions["backlink"]["incoming_count"], 1)
+        self.assertFalse(contributions["confidence"]["applied"])
+        self.assertEqual(contributions["confidence"]["value"], 0.7)
+
     def test_graph_adjacency_cache_hits_and_invalidates_after_reindex(self) -> None:
         self.write_note(
             "source.md",
@@ -2532,6 +2613,21 @@ Read-only MCP tools expose Markdown search.
         )
         self.assertFalse(call_response["result"]["isError"])
         self.assertIn("mcp_concept", call_response["result"]["content"][0]["text"])
+
+        diagnostics_response = handle_message(
+            service,
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_notes",
+                    "arguments": {"query": "Markdown", "diagnostics": True},
+                },
+            },
+        )
+        result = diagnostics_response["result"]["structuredContent"]["result"][0]
+        self.assertEqual(result["retrieval"]["diagnostics"]["version"], "retrieval-diagnostics-v0.1")
 
     def test_package_pyproject_and_mcp_versions_match(self) -> None:
         pyproject = tomllib.loads(

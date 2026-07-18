@@ -4,6 +4,10 @@
 
 This document defines the permission boundary for future CognitiveOS writeback features.
 
+The v0.8 threat-model and authorization details are in
+[Writeback Threat Model and Permission Boundary v0.8](writeback-threat-model-v0.8.md).
+That document extends this initial design; it does not enable writeback.
+
 The current MCP server remains read-only. Writeback is a later capability and must not be enabled implicitly by adding retrieval, summary, context, or planning tools.
 
 ## Permission Principles

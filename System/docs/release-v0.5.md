@@ -2,9 +2,11 @@
 
 ## Status
 
-Stabilization completed on 2026-07-14. The implementation is feature-complete,
-but the latest published stable release remains `v0.4.0`; this document does
-not authorize a `v0.5.0` version bump, tag, push, or GitHub Release.
+Stabilization completed on 2026-07-14. The release-candidate audit passed on
+2026-07-18 against integrated `main` commit `3cd12ef`. The implementation is
+approved for final `0.5.0` release preparation, but the latest published stable
+release remains `v0.4.0`; this document does not authorize a tag, push, or
+GitHub Release.
 
 The v0.5 implementation is read-only. Markdown and frontmatter remain the
 durable source of truth, the default semantic runtime remains `off`, MCP retains
@@ -90,13 +92,38 @@ no dependency on the original vault environments.
   writeback surface
 - private Markdown: 9 files with the unchanged aggregate digest recorded above
 
-Unit 4 is complete. A separate release-candidate task must still inspect the
-final branch diff, decide whether to retain observation time, and explicitly
-authorize any `0.5.0` version change or public release operation.
+## Release-Candidate Audit
+
+The 2026-07-18 audit used integrated `main` commit `3cd12ef` as its immutable
+code baseline. No code or package identity changed during the audit.
+
+- no open issue, pull request, remote `v0.5.0` tag, or `v0.5.0` GitHub Release
+  conflicts with final preparation
+- fresh Python 3.14.6 and Python 3.12.13 environments each pass all 92 tests
+  with `ResourceWarning` promoted to an error
+- package and MCP identities both report `0.5.0a1`; exactly nine read-only MCP
+  tools are exposed and writeback remains disabled
+- forced-offline pinned-model evaluation passes Recall@5 `1.0`, MRR `1.0`, and
+  every quality gate
+- wheel and source distribution builds are byte-identical across two runs after
+  local runtimes and derived indexes exist
+- source artifacts contain no local runtime, derived database, model weight, or
+  private Markdown
+- wheel-only installation reports `0.5.0a1` and exposes all seven CLI entry
+  points
+- actual-vault lexical and embedding indexes are healthy, both SQLite integrity
+  checks return `ok`, and required semantic retrieval reports
+  `semantic_used=true` with semantic rank 1
+- the canonical private Markdown digest remains
+  `4f6886919d89d27024b71b966c3e74fcd43bffc45c24087978d8747c6ccb0435`
+
+The audit approves a dedicated final-release branch to change `0.5.0a1` to
+`0.5.0`, write final release notes, and repeat exact-commit gates. It does not
+approve publication by itself.
 
 ## Publication Boundary
 
-Feature completion does not imply release publication. A later exact-commit
-audit must decide whether to change `0.5.0a1` to `0.5.0`, write final release
-notes, create an annotated tag, publish artifacts, or retain the development
-version for more observation.
+Feature completion and release-candidate approval do not imply publication.
+After the final version and release-note commit exists, a later exact-commit
+audit must repeat the release gates. Creating an annotated tag, pushing release
+artifacts, or publishing a GitHub Release still requires explicit user approval.

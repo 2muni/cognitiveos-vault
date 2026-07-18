@@ -1215,3 +1215,32 @@ Completion checkpoint:
   embedding chunks and both SQLite integrity checks returning `ok`
 - Unit 4 is complete without changing package version `0.5.0a1`, stable tag
   `v0.4.0`, or any private Markdown
+
+### v0.5 Release-Candidate Approval
+
+Decision:
+
+- use integrated `main` commit `3cd12ef` as the immutable v0.5 code baseline
+- approve a dedicated final-release branch to change package identity from
+  `0.5.0a1` to `0.5.0` and write final release notes
+- keep tag creation, artifact upload, push, and GitHub Release publication behind
+  a later exact-final-commit audit and explicit user approval
+
+Verification checkpoint:
+
+- fresh Python 3.14.6 and Python 3.12.13 local-embedding environments each pass
+  all 92 tests with `ResourceWarning` promoted to an error
+- package and MCP report `0.5.0a1`; the MCP surface remains nine read-only tools
+  with invalid calls rejected and writeback disabled
+- pinned `multilingual-e5-small` forced-offline evaluation passes Recall@5 and
+  MRR at `1.0`
+- wheel and source distribution builds are byte-identical across two runs and
+  exclude local runtimes, derived indexes, model files, and private Markdown
+- wheel-only installation exposes all seven development CLI entry points
+- actual-vault lexical and embedding indexes are healthy at 59 notes and 509
+  chunks respectively; both SQLite integrity checks return `ok`
+- required semantic retrieval reports `semantic_used=true` and semantic rank 1
+- canonical private Markdown aggregate digest remains
+  `4f6886919d89d27024b71b966c3e74fcd43bffc45c24087978d8747c6ccb0435`
+- no open issue, open pull request, remote `v0.5.0` tag, or `v0.5.0` GitHub
+  Release conflicts with final preparation

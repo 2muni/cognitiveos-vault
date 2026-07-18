@@ -28,6 +28,10 @@ class ProposalContractValidationTests(unittest.TestCase):
         audit.mkdir(mode=0o700)
         audit_boundary = Path(self.temporary.name) / "audit-boundary"
         provision_audit_boundary(audit, audit_key=b"v" * 32, boundary_path=audit_boundary)
+        root.chmod(0o555)
+        self.root = root
+        self.temporary_root = Path(self.temporary.name)
+        self.temporary_root.chmod(0o500)
         self.applier = AtomicSingleFileApplier(
             root,
             allowed_roots=("Notes",),
@@ -39,6 +43,8 @@ class ProposalContractValidationTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.applier.close()
+        self.root.chmod(0o700)
+        self.temporary_root.chmod(0o700)
         self.temporary.cleanup()
 
     def valid_absent(self) -> dict[str, object]:

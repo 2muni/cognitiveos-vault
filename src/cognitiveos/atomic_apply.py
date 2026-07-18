@@ -10,6 +10,7 @@ was reviewed, and this module has no verified whole-writer coordinator.
 from __future__ import annotations
 
 from contextlib import contextmanager
+import ctypes
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -22,6 +23,7 @@ import os
 from pathlib import Path
 import secrets
 import stat
+import sys
 import threading
 import time
 from typing import Any, Callable, Iterator
@@ -665,18 +667,34 @@ class AtomicSingleFileApplier:
     session binding.
     """
 
-    _DENIED_TOP_LEVEL = {
-        ".git",
-        ".obsidian",
-        ".pkm-index",
-        "Assets",
-        "System",
-        "scripts",
-        "src",
-        "tests",
-        "dist",
-        "build",
-    }
+    # These are policy names, not merely top-level directory names.  A note
+    # namespace must never contain a route into an operational subtree just
+    # because that subtree is nested below an otherwise allowed note root.
+    _DENIED_PATH_COMPONENTS = frozenset(
+        name.casefold()
+        for name in {
+            ".git",
+            ".obsidian",
+            ".pkm-index",
+            ".venv",
+            "venv",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".tox",
+            ".nox",
+            "__pycache__",
+            ".eggs",
+            "node_modules",
+            "Assets",
+            "System",
+            "scripts",
+            "src",
+            "tests",
+            "dist",
+            "build",
+        }
+    )
 
     def __init__(
         self,
@@ -714,6 +732,38 @@ class AtomicSingleFileApplier:
             raise ApplyRefused("invalid_vault_root") from exc
         self.root = root
         self._root_identity = self._fd_identity(self._root_fd)
+        if not root.name:
+            os.close(self._root_fd)
+            self._root_fd = -1
+            raise ApplyRefused("invalid_vault_root")
+        self._root_parent = root.parent
+        try:
+            self._root_parent_fd = os.open(
+                self._root_parent,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+        except OSError as exc:
+            os.close(self._root_fd)
+            self._root_fd = -1
+            raise ApplyRefused("invalid_vault_root") from exc
+        try:
+            self._root_parent_identity = self._fd_identity(self._root_parent_fd)
+            self._assert_namespace_parent_protected(self._root_parent_fd)
+            root_entry = os.stat(root.name, dir_fd=self._root_parent_fd, follow_symlinks=False)
+            if (
+                stat.S_ISLNK(root_entry.st_mode)
+                or not stat.S_ISDIR(root_entry.st_mode)
+                or (root_entry.st_dev, root_entry.st_ino) != self._root_identity
+            ):
+                raise ApplyRefused("invalid_vault_root")
+        except (ApplyRefused, OSError) as exc:
+            os.close(self._root_parent_fd)
+            self._root_parent_fd = -1
+            os.close(self._root_fd)
+            self._root_fd = -1
+            if isinstance(exc, ApplyRefused):
+                raise
+            raise ApplyRefused("invalid_vault_root") from exc
         self._owner_authority = owner_authority
         self._approval_key = secrets.token_bytes(32)
         self._approval_lifetime_seconds = approval_lifetime_seconds
@@ -740,9 +790,11 @@ class AtomicSingleFileApplier:
             for record in self._prepared.values():
                 self._invalidate_record(record, "server_stopped")
         self.audit.close()
-        if self._root_fd >= 0:
-            os.close(self._root_fd)
-            self._root_fd = -1
+        for descriptor_name in ("_root_parent_fd", "_root_fd"):
+            descriptor = getattr(self, descriptor_name, -1)
+            if descriptor >= 0:
+                os.close(descriptor)
+                setattr(self, descriptor_name, -1)
 
     def propose(
         self,
@@ -1252,6 +1304,7 @@ class AtomicSingleFileApplier:
         current = os.dup(self._root_fd)
         try:
             for component in parts[:-1]:
+                self._assert_namespace_parent_protected(current)
                 child = self._open_exact_directory(current, component)
                 os.close(current)
                 current = child
@@ -1278,8 +1331,7 @@ class AtomicSingleFileApplier:
                 components = candidate.split("/")
                 if any(not part or part in {".", ".."} or part.endswith((".", " ")) for part in components):
                     raise ProposalValidationError("invalid_allowed_root")
-                if components[0].casefold() in {name.casefold() for name in self._DENIED_TOP_LEVEL}:
-                    raise ProposalValidationError("invalid_allowed_root")
+                self._assert_no_denied_path_components(components)
                 canonical = "/".join(components)
                 self._assert_exact_existing_directory(canonical)
             except (ProposalValidationError, ApplyRefused) as exc:
@@ -1302,6 +1354,7 @@ class AtomicSingleFileApplier:
         current = os.dup(self._root_fd)
         try:
             for component in relative.split("/"):
+                self._assert_namespace_parent_protected(current)
                 child = self._open_exact_directory(current, component)
                 os.close(current)
                 current = child
@@ -1309,6 +1362,96 @@ class AtomicSingleFileApplier:
             raise ApplyRefused("invalid_allowed_root") from exc
         finally:
             os.close(current)
+
+    @classmethod
+    def _assert_no_denied_path_components(cls, components: tuple[str, ...] | list[str]) -> None:
+        if any(component.casefold() in cls._DENIED_PATH_COMPONENTS for component in components):
+            raise ApplyRefused("policy_denied")
+
+    @staticmethod
+    def _assert_namespace_parent_protected(parent_fd: int) -> None:
+        """Refuse a parent directory from which a child could be renamed.
+
+        POSIX has no portable no-follow resolution primitive that keeps a
+        directory descriptor inside an ancestor after that directory is
+        renamed.  A retained descriptor is therefore safe for the subsequent
+        create/link/unlink sequence only when the containing namespace cannot
+        rename or replace that child.  The standard POSIX permission primitive
+        for that is a directory with no write bit for owner, group, or other.
+
+        We require that protection for every directory *containing* a path
+        component, including the vault root.  The final target directory may
+        remain writable so the approved create can happen there, but it cannot
+        be moved once its parent is protected.  ACL, permission, or filesystem
+        configurations that cannot establish this condition are deliberately
+        unsupported and leave writeback read-only.
+        """
+
+        try:
+            info = os.fstat(parent_fd)
+        except OSError as exc:
+            raise ApplyRefused("unsafe_namespace") from exc
+        if (
+            not stat.S_ISDIR(info.st_mode)
+            or info.st_nlink < 2
+            or info.st_mode & 0o222
+        ):
+            raise ApplyRefused("unsafe_namespace")
+        AtomicSingleFileApplier._assert_no_extended_acl(parent_fd)
+
+    @staticmethod
+    def _assert_no_extended_acl(descriptor: int) -> None:
+        """Refuse namespace parents with permission state outside mode bits.
+
+        A mode-only check is insufficient when an ACL can grant a caller
+        delete-child permission despite ``0o555``-style bits.  We query the
+        platform ACL API through the already-open descriptor, reject any
+        extended ACL, and treat unavailable or unreadable ACL metadata as an
+        unsupported writeback configuration.  The call itself is read-only.
+        """
+
+        try:
+            if sys.platform == "darwin":
+                library = ctypes.CDLL(None, use_errno=True)
+                get_acl = library.acl_get_fd_np
+                get_acl.argtypes = (ctypes.c_int, ctypes.c_int)
+                get_acl.restype = ctypes.c_void_p
+                free_acl = library.acl_free
+                free_acl.argtypes = (ctypes.c_void_p,)
+                free_acl.restype = ctypes.c_int
+                ctypes.set_errno(0)
+                acl = get_acl(descriptor, 0x00000100)  # ACL_TYPE_EXTENDED
+                if acl:
+                    free_acl(acl)
+                    raise ApplyRefused("unsafe_namespace")
+                if ctypes.get_errno() != errno.ENOENT:  # No ACL is ENOENT on Darwin.
+                    raise ApplyRefused("unsafe_namespace")
+                return
+
+            if sys.platform.startswith("linux"):
+                library = ctypes.CDLL("libacl.so.1", use_errno=True)
+                get_acl = library.acl_get_fd
+                get_acl.argtypes = (ctypes.c_int,)
+                get_acl.restype = ctypes.c_void_p
+                equivalent_mode = library.acl_equiv_mode
+                equivalent_mode.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint))
+                equivalent_mode.restype = ctypes.c_int
+                free_acl = library.acl_free
+                free_acl.argtypes = (ctypes.c_void_p,)
+                free_acl.restype = ctypes.c_int
+                acl = get_acl(descriptor)
+                if not acl:
+                    raise ApplyRefused("unsafe_namespace")
+                try:
+                    mode = ctypes.c_uint()
+                    if equivalent_mode(acl, ctypes.byref(mode)) != 0:
+                        raise ApplyRefused("unsafe_namespace")
+                finally:
+                    free_acl(acl)
+                return
+        except (AttributeError, OSError):
+            raise ApplyRefused("unsafe_namespace") from None
+        raise ApplyRefused("unsafe_namespace")
 
     @staticmethod
     def _open_exact_directory(parent_fd: int, component: str) -> int:
@@ -1329,6 +1472,7 @@ class AtomicSingleFileApplier:
 
     def _select_allowed_root(self, path: str) -> tuple[str, str]:
         parts = tuple(path.split("/"))
+        self._assert_no_denied_path_components(parts)
         matches = [
             item
             for item in self._allowed_roots
@@ -1341,13 +1485,21 @@ class AtomicSingleFileApplier:
     def _assert_root_identity(self) -> None:
         try:
             info = os.lstat(self.root)
+            parent_info = os.fstat(self._root_parent_fd)
+            root_entry = os.stat(self.root.name, dir_fd=self._root_parent_fd, follow_symlinks=False)
         except OSError as exc:
             raise ApplyRefused("invalid_vault_root") from exc
+        self._assert_namespace_parent_protected(self._root_parent_fd)
         if (
             stat.S_ISLNK(info.st_mode)
             or not stat.S_ISDIR(info.st_mode)
             or (info.st_dev, info.st_ino) != self._root_identity
             or self._fd_identity(self._root_fd) != self._root_identity
+            or parent_info.st_mode & 0o222
+            or (parent_info.st_dev, parent_info.st_ino) != self._root_parent_identity
+            or stat.S_ISLNK(root_entry.st_mode)
+            or not stat.S_ISDIR(root_entry.st_mode)
+            or (root_entry.st_dev, root_entry.st_ino) != self._root_identity
         ):
             raise ApplyRefused("invalid_vault_root")
 

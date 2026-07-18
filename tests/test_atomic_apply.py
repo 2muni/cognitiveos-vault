@@ -74,17 +74,26 @@ def _concurrent_recovery_worker(
 class AtomicSingleFileApplyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
+        self.temporary_root = Path(self.temporary.name)
         self.root = Path(self.temporary.name) / "vault"
         self.notes = self.root / "Notes"
         self.notes.mkdir(parents=True)
         self.audit_directory = Path(self.temporary.name) / "audit"
         self.audit_directory.mkdir(mode=0o700)
         self.audit_boundary = Path(self.temporary.name) / "audit-boundary"
+        self.outside_notes = Path(self.temporary.name) / "outside" / "Notes"
+        self.outside_notes.mkdir(parents=True)
         provision_audit_boundary(
             self.audit_directory,
             audit_key=AUDIT_KEY,
             boundary_path=self.audit_boundary,
         )
+        # The v0.8 boundary is intentionally unsupported when a namespace
+        # parent can rename an allowed directory.  Notes itself is writable;
+        # its vault parent is not, so a final create can proceed but Notes
+        # cannot move outside the verified vault after its descriptor opens.
+        self.root.chmod(0o555)
+        self.temporary_root.chmod(0o500)
         self.owner = TestOwnerAuthority()
         self.applier = AtomicSingleFileApplier(
             self.root,
@@ -97,6 +106,8 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.applier.close()
+        self.root.chmod(0o700)
+        self.temporary_root.chmod(0o700)
         self.temporary.cleanup()
 
     def propose(self, *, path: str = "Notes/note.md", data: bytes = b"new note\n") -> dict[str, object]:
@@ -203,6 +214,63 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.assertEqual(ApplyOutcome.CONFLICT, result.outcome)
         self.assertEqual(b"concurrent creator\n", target.read_bytes())
         self.assertEqual(["pending", "conflict"], [record["outcome"] for record in self.applier.audit.records()])
+
+    def test_after_open_parent_rename_cannot_publish_outside_the_vault(self) -> None:
+        proposal = self.propose(path="Notes/renamed-parent.md", data=b"approved\n")
+        token = self.approve(proposal)
+        target = self.notes / "renamed-parent.md"
+        outside_target = self.outside_notes / "renamed-parent.md"
+        original_link = os.link
+        rename_attempted = False
+
+        def rename_parent_after_open(source: str, destination: str, **kwargs: object) -> None:
+            nonlocal rename_attempted
+            rename_attempted = True
+            # _publish_absent has already opened Notes when it reaches link.
+            # The protected vault parent is the namespace/permission primitive
+            # that makes this adversarial rename fail rather than redirect the
+            # retained directory descriptor outside the vault.
+            with self.assertRaises(PermissionError):
+                os.rename(self.notes, self.outside_notes)
+            original_link(source, destination, **kwargs)  # type: ignore[arg-type]
+
+        with mock.patch("cognitiveos.atomic_apply.os.link", side_effect=rename_parent_after_open):
+            result = self.applier.apply(proposal_id=proposal["proposal_id"], token=token)
+
+        self.assertTrue(rename_attempted)
+        self.assertEqual(ApplyOutcome.APPLIED, result.outcome)
+        self.assertEqual(b"approved\n", target.read_bytes())
+        self.assertFalse(outside_target.exists())
+
+    def test_writable_allowed_parent_namespace_is_refused_before_a_proposal(self) -> None:
+        self.root.chmod(0o755)
+        try:
+            with self.assertRaisesRegex(ApplyRefused, "invalid_allowed_root"):
+                AtomicSingleFileApplier(
+                    self.root,
+                    allowed_roots=("Notes",),
+                    audit_directory=self.audit_directory,
+                    audit_boundary_path=self.audit_boundary,
+                    owner_authority=TestOwnerAuthority(),
+                    audit_key=AUDIT_KEY,
+                )
+        finally:
+            self.root.chmod(0o555)
+
+    def test_writable_vault_parent_namespace_is_refused_before_a_proposal(self) -> None:
+        self.temporary_root.chmod(0o700)
+        try:
+            with self.assertRaisesRegex(ApplyRefused, "unsafe_namespace"):
+                AtomicSingleFileApplier(
+                    self.root,
+                    allowed_roots=("Notes",),
+                    audit_directory=self.audit_directory,
+                    audit_boundary_path=self.audit_boundary,
+                    owner_authority=TestOwnerAuthority(),
+                    audit_key=AUDIT_KEY,
+                )
+        finally:
+            self.temporary_root.chmod(0o500)
 
     def test_unsupported_atomic_create_refuses_without_creating_a_target(self) -> None:
         proposal = self.propose()
@@ -371,13 +439,19 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.assertEqual(records[2]["entry_digest"], records[3]["previous_entry_digest"])
 
     def test_case_variant_denied_roots_and_allowlist_aliases_are_refused(self) -> None:
-        (self.root / "Assets").mkdir()
-        for index, allowed_root in enumerate(("assets", "notes")):
-            with self.subTest(allowed_root=allowed_root):
+        cases: list[tuple[Path, Path, str]] = []
+        self.temporary_root.chmod(0o700)
+        try:
+            for index, allowed_root in enumerate(("assets", "notes")):
                 audit = Path(self.temporary.name) / f"case-audit-{index}"
                 audit.mkdir(mode=0o700)
                 boundary = Path(self.temporary.name) / f"case-boundary-{index}"
                 provision_audit_boundary(audit, audit_key=AUDIT_KEY, boundary_path=boundary)
+                cases.append((audit, boundary, allowed_root))
+        finally:
+            self.temporary_root.chmod(0o500)
+        for audit, boundary, allowed_root in cases:
+            with self.subTest(allowed_root=allowed_root):
                 with self.assertRaisesRegex(ApplyRefused, "invalid_allowed_root"):
                     AtomicSingleFileApplier(
                         self.root,
@@ -387,6 +461,38 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
                         owner_authority=TestOwnerAuthority(),
                         audit_key=AUDIT_KEY,
                     )
+
+    def test_nested_operational_directories_are_case_aware_and_denied(self) -> None:
+        denied_components = (
+            ".git",
+            ".GIT",
+            ".obsidian",
+            ".ObSiDiAn",
+            ".pkm-index",
+            ".PKM-INDEX",
+            ".pytest_cache",
+            ".mYpY_cAcHe",
+            ".RuFf_CaChE",
+            ".TOX",
+            ".nOx",
+            "__PyCache__",
+            ".VENV",
+            "VeNv",
+            ".eggs",
+            "NoDe_MoDuLeS",
+            "Assets",
+            "sYsTeM",
+            "scripts",
+            "SRC",
+            "tests",
+            "dist",
+            "build",
+        )
+        for component in denied_components:
+            with self.subTest(component=component):
+                with self.assertRaisesRegex(ApplyRefused, "policy_denied"):
+                    self.propose(path=f"Notes/{component}/policy-bypass.md")
+                self.assertFalse((self.notes / component / "policy-bypass.md").exists())
 
     def test_session_end_and_cancellation_invalidate_approved_tokens(self) -> None:
         session_ended = self.propose(path="Notes/session-ended.md")
@@ -452,8 +558,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(ApplyRefused):
                 self.propose(path=path)
 
-        outside = Path(self.temporary.name) / "outside"
-        outside.mkdir()
+        outside = self.outside_notes.parent
         os.symlink(outside, self.notes / "linked")
         with self.assertRaises(ApplyRefused):
             self.propose(path="Notes/linked/note.md")

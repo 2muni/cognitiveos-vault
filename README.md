@@ -337,6 +337,7 @@ The future writeback design and the v0.8 security boundary are documented in:
 ```text
 System/docs/writeback-permissions-v0.1.md
 System/docs/writeback-threat-model-v0.8.md
+System/docs/writeback-proposal-schema-v0.8.md
 ```
 
 Required principles:

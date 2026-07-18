@@ -14,9 +14,11 @@ token, or background write process.
 
 The v0.8 implementation sequence remains: proposal and exact preview, explicit
 approval bound to that proposal, immediate revalidation, atomic single-file
-apply, and an append-only derived audit record. A capability may be added only
-after a separate security review confirms that its implementation meets every
-MUST in this document.
+apply, and an append-only derived audit record. The normative proposal and
+exact-change representation is [Writeback Proposal and Exact-Change Contract
+v0.8](writeback-proposal-schema-v0.8.md). A capability may be added only after
+a separate security review confirms that its implementation meets every MUST in
+these documents.
 
 ## Security Objectives
 

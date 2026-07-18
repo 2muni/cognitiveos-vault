@@ -1244,3 +1244,25 @@ Verification checkpoint:
   `4f6886919d89d27024b71b966c3e74fcd43bffc45c24087978d8747c6ccb0435`
 - no open issue, open pull request, remote `v0.5.0` tag, or `v0.5.0` GitHub
   Release conflicts with final preparation
+
+### v0.5.0 Final Publication Authorization
+
+Decision:
+
+- prepare package and MCP identity `0.5.0` on `codex/v05-final-release`
+- add final `v0.5.0` release notes and update current-version documentation
+- require clean dual-runtime, forced-offline model, packaging, wheel-only,
+  actual-vault, SQLite, MCP, and private-checksum gates on the exact merged
+  `main` commit
+- after every gate passes, create an annotated immutable `v0.5.0` tag, publish
+  the GitHub Release, and attach the exact wheel and source distribution
+- record final asset digests in a separate post-release documentation commit so
+  the immutable release source does not contain a self-referential sdist digest
+
+Rationale:
+
+- the user explicitly authorized final publication on 2026-07-18
+- release-candidate audit found no code, safety, quality, packaging, privacy, or
+  remote-state blocker
+- writeback remains disabled and the release changes only disposable derived
+  state reliability and observation

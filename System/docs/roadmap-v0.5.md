@@ -2,12 +2,13 @@
 
 ## Status
 
-Design approved on 2026-07-14. Units 1 through 4 and the release-candidate audit
-are complete. Final `0.5.0` release preparation remains pending.
+Design approved on 2026-07-14. Units 1 through 4, the release-candidate audit,
+and final release preparation are complete. Published as `v0.5.0` on
+2026-07-18.
 
-The latest published stable release remains `v0.4.0`. This plan defines the
-next read-only implementation boundary; it does not authorize writeback,
-background indexing, note migration, or a `v0.5.0` release.
+The latest published stable release is `v0.5.0`. This plan records the completed
+read-only implementation boundary; it does not authorize writeback, background
+indexing, or note migration.
 
 ## Objective
 
@@ -328,8 +329,6 @@ Current checkpoint:
 
 ## Release Decision
 
-Feature completion does not imply publication. The release-candidate audit
-passed on 2026-07-18 against integrated `main` commit `3cd12ef` and approved a
-dedicated final-release branch to prepare package version `0.5.0` and release
-notes. Exact final-commit verification and explicit publication approval remain
-required; until then, `v0.4.0` remains the stable release.
+The release-candidate audit passed on 2026-07-18 against integrated `main`
+commit `3cd12ef`. Exact final-commit verification and explicit publication
+approval subsequently passed, and the result was published as `v0.5.0`.

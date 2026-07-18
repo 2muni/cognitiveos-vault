@@ -3,10 +3,9 @@
 ## Status
 
 Stabilization completed on 2026-07-14. The release-candidate audit passed on
-2026-07-18 against integrated `main` commit `3cd12ef`. The implementation is
-approved for final `0.5.0` release preparation, but the latest published stable
-release remains `v0.4.0`; this document does not authorize a tag, push, or
-GitHub Release.
+2026-07-18 against integrated `main` commit `3cd12ef`, and final publication was
+explicitly authorized on 2026-07-18. Package identity is `0.5.0`; the verified
+final source is published as the immutable `v0.5.0` release.
 
 The v0.5 implementation is read-only. Markdown and frontmatter remain the
 durable source of truth, the default semantic runtime remains `off`, MCP retains
@@ -83,12 +82,12 @@ no dependency on the original vault environments.
 ## Final Local State
 
 - validation errors: 0
-- lexical index: healthy, 59 notes and 59 FTS rows
-- embedding index: healthy, 59 notes, 509 chunks, dimension 384
+- lexical index: healthy, 60 notes and 60 FTS rows
+- embedding index: healthy, 60 notes, 521 chunks, dimension 384
 - lexical and embedding `PRAGMA integrity_check`: `ok`
 - actual-vault forced-offline required search: `semantic_used=true`, semantic
   rank 1
-- MCP: package version `0.5.0a1`, nine read-only tools, invalid-call error, no
+- MCP: package version `0.5.0`, nine read-only tools, invalid-call error, no
   writeback surface
 - private Markdown: 9 files with the unchanged aggregate digest recorded above
 
@@ -117,13 +116,13 @@ code baseline. No code or package identity changed during the audit.
 - the canonical private Markdown digest remains
   `4f6886919d89d27024b71b966c3e74fcd43bffc45c24087978d8747c6ccb0435`
 
-The audit approves a dedicated final-release branch to change `0.5.0a1` to
-`0.5.0`, write final release notes, and repeat exact-commit gates. It does not
-approve publication by itself.
+The audit approved a dedicated final-release branch to change `0.5.0a1` to
+`0.5.0`, write final release notes, and repeat exact-commit gates. The user then
+explicitly authorized publication through the verified tag and GitHub Release.
 
 ## Publication Boundary
 
-Feature completion and release-candidate approval do not imply publication.
-After the final version and release-note commit exists, a later exact-commit
-audit must repeat the release gates. Creating an annotated tag, pushing release
-artifacts, or publishing a GitHub Release still requires explicit user approval.
+The `v0.5.0` tag must point to the exact merged commit that passes the final
+dual-runtime, packaging, MCP, actual-vault, offline-model, and checksum gates.
+Historical tags must not be moved. Release assets must be built from that exact
+tree and verified again after download from GitHub.

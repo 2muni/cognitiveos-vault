@@ -30,6 +30,20 @@ codex --model gpt-5.6-terra -c model_reasoning_effort="low"
 codex --model gpt-5.6 -c model_reasoning_effort="medium"
 ```
 
+For Orca worktrees, prefer the repository launcher so an omitted or invalid
+model/effort cannot silently fall back to the client default:
+
+```text
+bash scripts/run-orca-codex.sh gpt-5.6-terra low
+bash scripts/run-orca-codex.sh gpt-5.6 high
+```
+
+The launcher requires both values, validates them against the supported IDs
+and effort values above, and should be passed to
+`orca terminal create --command`. After launch, verify the terminal header
+shows the same model and effort before sending the task brief. Never use a
+bare `codex` or `orca worktree create --agent codex` for a tier-sensitive task.
+
 Task tier mapping:
 
 - `gpt-5.6-terra / low`: UI checks, status checks, small documentation edits, and routine Git operations

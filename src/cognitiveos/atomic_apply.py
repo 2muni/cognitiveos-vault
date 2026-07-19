@@ -28,6 +28,14 @@ import threading
 import time
 from typing import Any, Callable, Iterator
 
+# ``os.supports_*`` contains the native function objects present at import
+# time.  Keep these two facts stable even when a focused test instruments
+# ``os.link`` to simulate an attacker racing final publication.  The actual
+# publication call still uses ``os.link`` and continues to fail closed if the
+# active implementation cannot provide the requested semantics.
+_NATIVE_LINK_SUPPORTS_DIR_FD = os.link in os.supports_dir_fd
+_NATIVE_LINK_SUPPORTS_FOLLOW_SYMLINKS = os.link in os.supports_follow_symlinks
+
 try:  # v0.8 deliberately remains read-only where advisory process locks lack support.
     import fcntl
 except ImportError:  # pragma: no cover - exercised by platform capability checks.
@@ -1596,8 +1604,8 @@ class AtomicSingleFileApplier:
             sys.platform.startswith("linux")
             and hasattr(os, "O_TMPFILE")
             and os.open in os.supports_dir_fd
-            and os.link in os.supports_dir_fd
-            and os.link in os.supports_follow_symlinks
+            and _NATIVE_LINK_SUPPORTS_DIR_FD
+            and _NATIVE_LINK_SUPPORTS_FOLLOW_SYMLINKS
             and os.path.isdir("/proc/self/fd")
         )
 

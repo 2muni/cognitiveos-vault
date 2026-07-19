@@ -38,6 +38,17 @@ class RecordingWriteSink:
         raise AssertionError("fixture-only gate must never call a write sink")
 
 
+class ExplosiveCallsSink:
+    """A sink whose calls property proves that denial never introspects it."""
+
+    @property
+    def calls(self) -> int:
+        raise AssertionError("fixture-only denial must not inspect sink properties")
+
+    def write(self, *_: object, **__: object) -> None:
+        raise AssertionError("fixture-only gate must never call a write sink")
+
+
 class MutableClock:
     def __init__(self, value: datetime) -> None:
         self.value = value
@@ -116,6 +127,22 @@ class FixtureOnlyTopologyTests(unittest.TestCase):
         self.assertEqual(parsed, verified)
         self.assertEqual(self.topology_digest, verified.digest)
 
+    def test_canonical_topology_rejects_unexpected_root_and_nested_entries(self) -> None:
+        verifier = FixtureTopologyVerifier(self.fixture_root)
+        unexpected_root = self.fixture_root / "unexpected-root-entry"
+        unexpected_root.write_bytes(b"unexpected root entry\n")
+
+        with self.assertRaisesRegex(FixtureTopologyRefused, "topology_unexpected_entry"):
+            verifier.verify(self.manifest)
+        with self.assertRaisesRegex(FixtureTopologyRefused, "topology_unexpected_entry"):
+            capture_canonical_manifest(self.fixture_root)
+
+        unexpected_root.unlink()
+        unexpected_nested = self.fixture_root / "audit" / "unexpected-audit-entry"
+        unexpected_nested.write_bytes(b"unexpected nested entry\n")
+        with self.assertRaisesRegex(FixtureTopologyRefused, "topology_unexpected_entry"):
+            capture_canonical_manifest(self.fixture_root)
+
     def test_manifest_rejects_noncanonical_and_non_strict_variants(self) -> None:
         decoded = json.loads(self.manifest)
         variants: list[object] = [
@@ -190,7 +217,7 @@ class FixtureOnlyTopologyTests(unittest.TestCase):
     def test_descriptor_substitution_race_is_refused(self) -> None:
         verifier = FixtureTopologyVerifier(self.fixture_root)
         boundary = self.fixture_root / "audit-boundary"
-        replacement = self.fixture_root / "boundary-replacement"
+        replacement = self.temporary_root / "boundary-replacement"
         replacement.write_bytes(b"raced boundary\n")
         raced = False
 
@@ -204,6 +231,21 @@ class FixtureOnlyTopologyTests(unittest.TestCase):
         with self.assertRaisesRegex(FixtureTopologyRefused, "topology_descriptor_race"):
             verifier.verify(self.manifest, descriptor_opener=race_opener)
         self.assertTrue(raced)
+
+    def test_unsupported_descriptor_platform_fails_closed_before_opening_any_entry(self) -> None:
+        verifier = FixtureTopologyVerifier(self.fixture_root)
+        opener_called = False
+
+        def unsupported_opener(_: str, __: int, ___: int) -> int:
+            nonlocal opener_called
+            opener_called = True
+            raise AssertionError("unsupported descriptor platform must not attempt an open")
+
+        with mock.patch("fixture_only_topology._descriptor_api_supported", return_value=False):
+            with self.assertRaisesRegex(FixtureTopologyRefused, "topology_descriptor_api_unsupported"):
+                verifier.verify(self.manifest, descriptor_opener=unsupported_opener)
+
+        self.assertFalse(opener_called)
 
     def test_fake_authority_binds_every_field_and_uses_a_one_time_opaque_handle(self) -> None:
         binding, confirmation = self.issue()
@@ -352,6 +394,24 @@ class FixtureOnlyTopologyTests(unittest.TestCase):
         self.assertEqual(0, sink.calls)
         production_apply.assert_not_called()
         self.assertEqual(0, self._out_of_fixture_mutation_count())
+
+    def test_deny_decision_never_introspects_sink_properties(self) -> None:
+        binding, confirmation = self.issue()
+        gate = FixtureOnlyDenyGate(
+            topology_verifier=FixtureTopologyVerifier(self.fixture_root),
+            authority=self.authority,
+            write_sink=ExplosiveCallsSink(),
+        )
+
+        decision = gate.evaluate(
+            manifest=self.manifest,
+            confirmation=confirmation,
+            proposal_id="fixture-proposal-0001",
+            binding=binding,
+        )
+
+        self.assertEqual("fixture_only_denied", decision.reason)
+        self.assertEqual(0, decision.write_sink_calls)
 
     def test_mismatched_topology_digest_is_denied_before_authority_or_sink_use(self) -> None:
         binding, confirmation = self.issue()

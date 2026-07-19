@@ -171,6 +171,8 @@ class _AuditJournal:
         self._directory_fd = -1
         self._boundary_parent_fd = -1
         self._lock_fd = -1
+        self._boundary_identity: tuple[int, int] | None = None
+        self._held_lock_identity: tuple[int, int] | None = None
         try:
             self._directory_fd = os.open(
                 directory,
@@ -193,6 +195,14 @@ class _AuditJournal:
                 raise ApplyRefused("audit_unavailable")
             self._lock_fd = self._open_regular("journal.lock", os.O_RDWR, create=False)
             self._lock_identity = self._fd_identity(self._lock_fd)
+            try:
+                boundary_fd = self._open_boundary_regular(os.O_RDONLY, create=False)
+            except FileNotFoundError as exc:
+                raise ApplyRefused("audit_unavailable") from exc
+            try:
+                self._boundary_identity = self._fd_identity(boundary_fd)
+            finally:
+                os.close(boundary_fd)
             with self._exclusive_lock():
                 self._read_verified_locked()
         except Exception:
@@ -207,6 +217,7 @@ class _AuditJournal:
             raise
 
     def close(self) -> None:
+        self._held_lock_identity = None
         for descriptor_name in ("_lock_fd", "_boundary_parent_fd", "_directory_fd"):
             descriptor = getattr(self, descriptor_name, -1)
             if descriptor >= 0:
@@ -349,6 +360,7 @@ class _AuditJournal:
         with self._thread_lock:
             self._assert_directory_identity()
             self._assert_lock_identity()
+            self._assert_boundary_identity()
             try:
                 fcntl.flock(self._lock_fd, fcntl.LOCK_EX)
             except OSError as exc:
@@ -356,16 +368,22 @@ class _AuditJournal:
             try:
                 self._assert_directory_identity()
                 self._assert_lock_identity()
+                self._assert_boundary_identity()
+                self._held_lock_identity = self._lock_identity
                 yield
                 self._assert_directory_identity()
                 self._assert_lock_identity()
+                self._assert_boundary_identity()
             finally:
                 try:
                     fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
                 except OSError:
                     pass
+                finally:
+                    self._held_lock_identity = None
 
     def _append_locked(self, records: list[dict[str, object]], projection: dict[str, object]) -> dict[str, object]:
+        self._require_held_lock()
         self._validate_projection(projection)
         entry = dict(projection)
         entry["journal_sequence"] = len(records) + 1
@@ -388,28 +406,31 @@ class _AuditJournal:
         return entry
 
     def _read_verified_locked(self) -> list[dict[str, object]]:
+        self._require_held_lock()
+        typed_records: list[dict[str, object]] = []
         try:
             descriptor = self._open_regular("journal.jsonl", os.O_RDONLY, create=False)
         except FileNotFoundError:
-            return []
-        try:
-            chunks: list[bytes] = []
-            while block := os.read(descriptor, 64 * 1024):
-                chunks.append(block)
-        except OSError as exc:
-            raise ApplyRefused("audit_unavailable") from exc
-        finally:
-            os.close(descriptor)
-        raw = b"".join(chunks)
-        if raw and not raw.endswith(b"\n"):
-            raise ApplyRefused("audit_unavailable")
-        try:
-            records = [json.loads(line) for line in raw.splitlines() if line]
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ApplyRefused("audit_unavailable") from exc
-        if not all(isinstance(record, dict) for record in records):
-            raise ApplyRefused("audit_unavailable")
-        typed_records = [dict(record) for record in records]
+            pass
+        else:
+            try:
+                chunks: list[bytes] = []
+                while block := os.read(descriptor, 64 * 1024):
+                    chunks.append(block)
+            except OSError as exc:
+                raise ApplyRefused("audit_unavailable") from exc
+            finally:
+                os.close(descriptor)
+            raw = b"".join(chunks)
+            if raw and not raw.endswith(b"\n"):
+                raise ApplyRefused("audit_unavailable")
+            try:
+                records = [json.loads(line) for line in raw.splitlines() if line]
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ApplyRefused("audit_unavailable") from exc
+            if not all(isinstance(record, dict) for record in records):
+                raise ApplyRefused("audit_unavailable")
+            typed_records = [dict(record) for record in records]
         self._verify_chain(typed_records)
         self._verify_boundary_locked(typed_records)
         return typed_records
@@ -429,6 +450,7 @@ class _AuditJournal:
             previous = digest
 
     def _read_boundary_locked(self) -> dict[str, object]:
+        self._require_held_lock()
         try:
             descriptor = self._open_boundary_regular(os.O_RDONLY, create=False)
         except FileNotFoundError as exc:
@@ -464,6 +486,7 @@ class _AuditJournal:
         return dict(boundary)
 
     def _verify_boundary_locked(self, records: list[dict[str, object]]) -> None:
+        self._require_held_lock()
         boundary = self._read_boundary_locked()
         expected_digest = records[-1]["entry_digest"] if records else None
         if (
@@ -473,6 +496,7 @@ class _AuditJournal:
             raise ApplyRefused("audit_unavailable")
 
     def _write_boundary_locked(self, entry: dict[str, object]) -> None:
+        self._require_held_lock()
         boundary: dict[str, object] = {
             "schema_version": self._BOUNDARY_SCHEMA_VERSION,
             "journal_sequence": entry["journal_sequence"],
@@ -579,6 +603,32 @@ class _AuditJournal:
         ):
             raise ApplyRefused("audit_unavailable")
 
+    def _assert_boundary_identity(self) -> None:
+        if self._boundary_identity is None:
+            raise ApplyRefused("audit_unavailable")
+        try:
+            info = os.stat(
+                self._boundary_path.name,
+                dir_fd=self._boundary_parent_fd,
+                follow_symlinks=False,
+            )
+        except OSError as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o077
+            or (info.st_dev, info.st_ino) != self._boundary_identity
+        ):
+            raise ApplyRefused("audit_unavailable")
+
+    def _require_held_lock(self) -> None:
+        if self._held_lock_identity != self._lock_identity:
+            raise ApplyRefused("audit_unavailable")
+        self._assert_lock_identity()
+        self._assert_boundary_identity()
+
     @staticmethod
     def _fd_identity(descriptor: int) -> tuple[int, int]:
         info = os.fstat(descriptor)
@@ -614,6 +664,8 @@ class _AuditJournal:
             raise ApplyRefused("audit_unavailable") from exc
         try:
             self._verify_regular_fd(descriptor)
+            if self._boundary_identity is not None and self._fd_identity(descriptor) != self._boundary_identity:
+                raise ApplyRefused("audit_unavailable")
             return descriptor
         except Exception:
             os.close(descriptor)
@@ -909,6 +961,9 @@ class AtomicSingleFileApplier:
             try:
                 self._validate_private_record(record)
                 self._assert_record_lifecycle(record)
+                # Capability issuance must not ask the trusted owner to approve
+                # a proposal while the anchored audit history is unavailable.
+                self.audit.records()
             except ApplyRefused as exc:
                 self._invalidate_record(record, "invalidated")
                 raise ApplyRefused("not_approved") from exc

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import functools
+import hashlib
+import hmac
 import json
 import multiprocessing
 import os
@@ -18,6 +20,7 @@ from cognitiveos.atomic_apply import (
     provision_audit_boundary,
 )
 from cognitiveos.safety import SKIPPED_DIRS, WRITEBACK_DENIED_DIRS, WRITEBACK_DENIED_DIR_PREFIXES
+from cognitiveos.writeback_proposal import canonical_json
 
 from writeback_support import TestOwnerAuthority
 
@@ -158,6 +161,69 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
     def approve(self, proposal: dict[str, object]) -> str:
         return self.applier.approve_from_trusted_owner(self.owner.confirm(proposal))
 
+    def replace_audit_boundary(self, contents: bytes | None) -> None:
+        self.temporary_root.chmod(0o700)
+        try:
+            self.audit_boundary.unlink()
+            if contents is not None:
+                self.audit_boundary.write_bytes(contents)
+                self.audit_boundary.chmod(0o600)
+        finally:
+            self.temporary_root.chmod(0o500)
+
+    def write_authenticated_boundary(self, updates: dict[str, object]) -> bytes:
+        boundary = json.loads(self.audit_boundary.read_text(encoding="utf-8"))
+        boundary.update(updates)
+        unsigned = dict(boundary)
+        unsigned.pop("boundary_digest")
+        boundary["boundary_digest"] = "hmac-sha256:" + hmac.new(
+            AUDIT_KEY,
+            canonical_json(unsigned),
+            hashlib.sha256,
+        ).hexdigest()
+        payload = canonical_json(boundary) + b"\n"
+        self.audit_boundary.write_bytes(payload)
+        return payload
+
+    def assert_empty_journal_boundary_refuses_before_approval(self, state: str) -> None:
+        target = self.notes / f"boundary-{state}.md"
+        proposal = self.propose(path=f"Notes/{target.name}")
+        journal = self.audit_directory / "journal.jsonl"
+        self.assertFalse(journal.exists())
+        original = self.audit_boundary.read_bytes()
+
+        if state == "missing":
+            self.replace_audit_boundary(None)
+            expected_boundary = None
+        elif state == "replaced":
+            self.replace_audit_boundary(original)
+            expected_boundary = original
+        elif state == "malformed":
+            expected_boundary = b'{"malformed":true}\n'
+            self.audit_boundary.write_bytes(expected_boundary)
+        elif state == "hmac-invalid":
+            boundary = json.loads(original)
+            boundary["boundary_digest"] = "hmac-sha256:" + ("0" * 64)
+            expected_boundary = canonical_json(boundary) + b"\n"
+            self.audit_boundary.write_bytes(expected_boundary)
+        else:
+            self.fail(f"unknown boundary state: {state}")
+
+        with mock.patch.object(
+            self.owner,
+            "verify_owner_confirmation",
+            wraps=self.owner.verify_owner_confirmation,
+        ) as verify_owner_confirmation:
+            with self.assertRaisesRegex(ApplyRefused, "not_approved"):
+                self.applier.approve_from_trusted_owner(self.owner.confirm(proposal))
+        verify_owner_confirmation.assert_not_called()
+        self.assertFalse(target.exists())
+        self.assertFalse(journal.exists())
+        if expected_boundary is None:
+            self.assertFalse(self.audit_boundary.exists())
+        else:
+            self.assertEqual(expected_boundary, self.audit_boundary.read_bytes())
+
     def descriptor_bound_publication_available(self) -> bool:
         """Probe the entire safe publication sequence without exposing target bytes."""
 
@@ -201,6 +267,99 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
 
         if not self.descriptor_bound_publication_available():
             self.skipTest("descriptor-bound atomic publication is unavailable on this filesystem")
+
+    def test_empty_journal_boundary_is_verified_only_while_the_exact_lock_is_held(self) -> None:
+        journal = self.audit_directory / "journal.jsonl"
+        original_boundary = self.audit_boundary.read_bytes()
+        boundary = json.loads(original_boundary)
+        lock_identity = os.stat(self.audit_directory / "journal.lock")
+
+        self.assertFalse(journal.exists())
+        self.assertEqual(0, boundary["journal_sequence"])
+        self.assertIsNone(boundary["entry_digest"])
+        self.assertEqual(f"{lock_identity.st_dev}:{lock_identity.st_ino}", boundary["journal_lock_identity"])
+        with self.assertRaisesRegex(ApplyRefused, "audit_unavailable"):
+            self.applier.audit._read_verified_locked()
+        self.assertEqual([], self.applier.audit.records())
+        self.assertFalse(journal.exists())
+        self.assertEqual(original_boundary, self.audit_boundary.read_bytes())
+
+    def test_constructor_refuses_missing_boundary_for_an_empty_journal(self) -> None:
+        target = self.notes / "constructor-missing-boundary.md"
+        journal = self.audit_directory / "journal.jsonl"
+        self.applier.close()
+        self.replace_audit_boundary(None)
+
+        with self.assertRaisesRegex(ApplyRefused, "audit_unavailable"):
+            AtomicSingleFileApplier(
+                self.root,
+                allowed_roots=("Notes",),
+                audit_directory=self.audit_directory,
+                audit_boundary_path=self.audit_boundary,
+                owner_authority=TestOwnerAuthority(),
+                audit_key=AUDIT_KEY,
+            )
+
+        self.assertFalse(target.exists())
+        self.assertFalse(journal.exists())
+        self.assertFalse(self.audit_boundary.exists())
+
+    def test_missing_empty_journal_boundary_refuses_before_owner_approval(self) -> None:
+        self.assert_empty_journal_boundary_refuses_before_approval("missing")
+
+    def test_replaced_empty_journal_boundary_refuses_before_owner_approval(self) -> None:
+        self.assert_empty_journal_boundary_refuses_before_approval("replaced")
+
+    def test_malformed_empty_journal_boundary_refuses_before_owner_approval(self) -> None:
+        self.assert_empty_journal_boundary_refuses_before_approval("malformed")
+
+    def test_hmac_invalid_empty_journal_boundary_refuses_before_owner_approval(self) -> None:
+        self.assert_empty_journal_boundary_refuses_before_approval("hmac-invalid")
+
+    def test_empty_journal_rejects_authenticated_nonempty_or_wrong_lock_boundary(self) -> None:
+        journal = self.audit_directory / "journal.jsonl"
+        original_boundary = self.audit_boundary.read_bytes()
+        invalid_states = {
+            "nonzero-sequence": {"journal_sequence": 1},
+            "non-null-entry-digest": {"entry_digest": "hmac-sha256:" + ("f" * 64)},
+            "wrong-lock-identity": {"journal_lock_identity": "0:0"},
+        }
+
+        for state, updates in invalid_states.items():
+            with self.subTest(state=state):
+                target = self.notes / f"boundary-{state}.md"
+                proposal = self.propose(path=f"Notes/{target.name}")
+                expected_boundary = self.write_authenticated_boundary(updates)
+                with mock.patch.object(
+                    self.owner,
+                    "verify_owner_confirmation",
+                    wraps=self.owner.verify_owner_confirmation,
+                ) as verify_owner_confirmation:
+                    with self.assertRaisesRegex(ApplyRefused, "not_approved"):
+                        self.applier.approve_from_trusted_owner(self.owner.confirm(proposal))
+                verify_owner_confirmation.assert_not_called()
+                self.assertFalse(target.exists())
+                self.assertFalse(journal.exists())
+                self.assertEqual(expected_boundary, self.audit_boundary.read_bytes())
+                self.audit_boundary.write_bytes(original_boundary)
+
+    def test_apply_never_repairs_an_hmac_invalid_empty_journal_boundary(self) -> None:
+        target = self.notes / "apply-invalid-boundary.md"
+        journal = self.audit_directory / "journal.jsonl"
+        proposal = self.propose(path=f"Notes/{target.name}")
+        token = self.approve(proposal)
+        boundary = json.loads(self.audit_boundary.read_text(encoding="utf-8"))
+        boundary["boundary_digest"] = "hmac-sha256:" + ("0" * 64)
+        expected_boundary = canonical_json(boundary) + b"\n"
+        self.audit_boundary.write_bytes(expected_boundary)
+
+        self.assertEqual(
+            ApplyOutcome.REFUSED,
+            self.applier.apply(proposal_id=proposal["proposal_id"], token=token).outcome,
+        )
+        self.assertFalse(target.exists())
+        self.assertFalse(journal.exists())
+        self.assertEqual(expected_boundary, self.audit_boundary.read_bytes())
 
     @_requires_descriptor_bound_publication
     def test_only_trusted_owner_can_issue_the_one_time_apply_token(self) -> None:

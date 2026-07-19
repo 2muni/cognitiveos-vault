@@ -167,6 +167,12 @@ class ProposalContractValidationTests(unittest.TestCase):
             "Notes/LPT1.md",
             "Notes/lPt9.notes.md",
             "Notes/CON .md",
+            "Notes/COM¹.md",
+            "Notes/cOm².backup.md",
+            "Notes/com³.archive.md",
+            "Notes/LPT¹.md",
+            "Notes/lPt².backup.md",
+            "Notes/lpt³.archive.md",
         )
         accepted = (
             "Notes/COM0.md",

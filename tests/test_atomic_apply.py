@@ -409,6 +409,21 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         finally:
             self.temporary_root.chmod(0o500)
 
+    def test_propose_refuses_windows_superscript_device_basenames(self) -> None:
+        rejected = (
+            "Notes/COM¹.md",
+            "Notes/cOm².backup.md",
+            "Notes/com³.archive.md",
+            "Notes/LPT¹.md",
+            "Notes/lPt².backup.md",
+            "Notes/lpt³.archive.md",
+        )
+
+        for path in rejected:
+            with self.subTest(path=path), self.assertRaisesRegex(ApplyRefused, "invalid_path"):
+                self.propose(path=path)
+            self.assertFalse((self.root / path).exists())
+
     def test_unsupported_atomic_create_refuses_without_creating_a_target(self) -> None:
         proposal = self.propose()
         token = self.approve(proposal)

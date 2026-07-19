@@ -648,16 +648,73 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         retained = journal.read_bytes().splitlines(keepends=True)
         self.assertEqual(2, len(retained))
         journal.write_bytes(b"".join(retained[:-1]))
+        truncated_journal = journal.read_bytes()
+        boundary_before_refusal = self.audit_boundary.read_bytes()
+        original_target = self.notes / "note.md"
+        original_target_bytes = original_target.read_bytes()
 
         with self.assertRaisesRegex(ApplyRefused, "audit_unavailable"):
             self.applier.audit.records()
         blocked = self.propose(path="Notes/blocked-after-truncation.md")
-        blocked_token = self.approve(blocked)
+        with mock.patch.object(
+            self.owner,
+            "verify_owner_confirmation",
+            wraps=self.owner.verify_owner_confirmation,
+        ) as verify_owner_confirmation:
+            with self.assertRaisesRegex(ApplyRefused, "not_approved"):
+                self.approve(blocked)
+        verify_owner_confirmation.assert_not_called()
         self.assertEqual(
             ApplyOutcome.REFUSED,
-            self.applier.apply(proposal_id=blocked["proposal_id"], token=blocked_token).outcome,
+            self.applier.apply(proposal_id=blocked["proposal_id"], token="not-issued").outcome,
         )
+        self.assertEqual(truncated_journal, journal.read_bytes())
+        self.assertEqual(boundary_before_refusal, self.audit_boundary.read_bytes())
+        self.assertEqual(original_target_bytes, original_target.read_bytes())
         self.assertFalse((self.notes / "blocked-after-truncation.md").exists())
+
+    def test_audit_tail_truncation_refuses_approval_without_descriptor_publication(self) -> None:
+        proposal = self.propose(data=b"auditable without publication\n")
+        token = self.approve(proposal)
+        original_target = self.notes / "note.md"
+
+        with mock.patch.object(
+            self.applier,
+            "_publish_absent",
+            side_effect=ApplyRefused("simulated_publication_failure"),
+        ):
+            self.assertEqual(
+                ApplyOutcome.REFUSED,
+                self.applier.apply(proposal_id=proposal["proposal_id"], token=token).outcome,
+            )
+        self.assertFalse(original_target.exists())
+
+        journal = self.audit_directory / "journal.jsonl"
+        retained = journal.read_bytes().splitlines(keepends=True)
+        self.assertEqual(2, len(retained))
+        journal.write_bytes(b"".join(retained[:-1]))
+        truncated_journal = journal.read_bytes()
+        boundary_before_refusal = self.audit_boundary.read_bytes()
+
+        with self.assertRaisesRegex(ApplyRefused, "audit_unavailable"):
+            self.applier.audit.records()
+        blocked = self.propose(path="Notes/blocked-without-publication.md")
+        with mock.patch.object(
+            self.owner,
+            "verify_owner_confirmation",
+            wraps=self.owner.verify_owner_confirmation,
+        ) as verify_owner_confirmation:
+            with self.assertRaisesRegex(ApplyRefused, "not_approved"):
+                self.approve(blocked)
+        verify_owner_confirmation.assert_not_called()
+        self.assertEqual(
+            ApplyOutcome.REFUSED,
+            self.applier.apply(proposal_id=blocked["proposal_id"], token="not-issued").outcome,
+        )
+        self.assertEqual(truncated_journal, journal.read_bytes())
+        self.assertEqual(boundary_before_refusal, self.audit_boundary.read_bytes())
+        self.assertFalse(original_target.exists())
+        self.assertFalse((self.notes / "blocked-without-publication.md").exists())
 
     @_requires_descriptor_bound_publication
     def test_recovery_serializes_read_verify_append_and_never_writes_source(self) -> None:

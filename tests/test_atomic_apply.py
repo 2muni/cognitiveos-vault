@@ -53,6 +53,9 @@ def _atomic_test_temporary_directory() -> tempfile.TemporaryDirectory[str]:
         try:
             descriptor = os.open(temporary.name, os.O_WRONLY | os.O_TMPFILE, 0o600)
             AtomicSingleFileApplier._verify_unlinked_temporary_fd(descriptor)
+            os.write(descriptor, b"probe")
+            os.fsync(descriptor)
+            AtomicSingleFileApplier._verify_unlinked_temporary_fd(descriptor)
             return temporary
         except (ApplyRefused, OSError):
             temporary.cleanup()
@@ -165,6 +168,9 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         probe_name = ".cognitiveos-descriptor-probe"
         try:
             descriptor = os.open(".", os.O_WRONLY | os.O_TMPFILE, 0o600, dir_fd=parent_fd)
+            AtomicSingleFileApplier._verify_unlinked_temporary_fd(descriptor)
+            os.write(descriptor, b"probe")
+            os.fsync(descriptor)
             AtomicSingleFileApplier._verify_unlinked_temporary_fd(descriptor)
             os.link(
                 f"/proc/self/fd/{descriptor}",

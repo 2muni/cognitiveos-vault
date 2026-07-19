@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import json
 import multiprocessing
 import os
@@ -22,10 +23,43 @@ from writeback_support import TestOwnerAuthority
 
 
 AUDIT_KEY = b"a" * 32
-_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION = unittest.skipUnless(
-    AtomicSingleFileApplier._descriptor_bound_atomic_create_supported(),
-    "requires Linux descriptor-bound atomic publication primitives",
-)
+
+
+def _requires_descriptor_bound_publication(test: object) -> object:
+    """Run publication assertions only on a filesystem with the safe primitive."""
+
+    @functools.wraps(test)
+    def wrapped(self: "AtomicSingleFileApplyTests", *args: object, **kwargs: object) -> object:
+        self.require_descriptor_bound_publication()
+        return test(self, *args, **kwargs)  # type: ignore[operator]
+
+    return wrapped
+
+
+def _atomic_test_temporary_directory() -> tempfile.TemporaryDirectory[str]:
+    """Prefer a Linux tmpfs when its anonymous-file primitive is available.
+
+    Hosted Linux workspaces can be overlay filesystems that correctly reject
+    ``O_TMPFILE``.  ``/dev/shm`` is a disposable tmpfs on the CI images, so it
+    lets the descriptor-bound regression execute where the kernel/filesystem
+    pair supports the required primitive.  Other hosts retain the ordinary
+    ``TemporaryDirectory`` path and exercise the fail-closed behavior.
+    """
+
+    shared_memory = Path("/dev/shm")
+    if AtomicSingleFileApplier._descriptor_bound_atomic_create_supported() and shared_memory.is_dir():
+        temporary = tempfile.TemporaryDirectory(dir=shared_memory)
+        descriptor = -1
+        try:
+            descriptor = os.open(temporary.name, os.O_WRONLY | os.O_TMPFILE, 0o600)
+            AtomicSingleFileApplier._verify_unlinked_temporary_fd(descriptor)
+            return temporary
+        except (ApplyRefused, OSError):
+            temporary.cleanup()
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+    return tempfile.TemporaryDirectory()
 
 
 def _concurrent_create_worker(
@@ -78,7 +112,7 @@ def _concurrent_recovery_worker(
 
 class AtomicSingleFileApplyTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = _atomic_test_temporary_directory()
         self.temporary_root = Path(self.temporary.name)
         self.root = Path(self.temporary.name) / "vault"
         self.notes = self.root / "Notes"
@@ -121,7 +155,32 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
     def approve(self, proposal: dict[str, object]) -> str:
         return self.applier.approve_from_trusted_owner(self.owner.confirm(proposal))
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    def require_descriptor_bound_publication(self) -> None:
+        """Skip success-path tests when the filesystem correctly fails closed."""
+
+        if not AtomicSingleFileApplier._descriptor_bound_atomic_create_supported():
+            self.skipTest("requires Linux descriptor-bound atomic publication primitives")
+        parent_fd = os.open(self.notes, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        descriptor = -1
+        probe_name = ".cognitiveos-descriptor-probe"
+        try:
+            descriptor = os.open(".", os.O_WRONLY | os.O_TMPFILE, 0o600, dir_fd=parent_fd)
+            AtomicSingleFileApplier._verify_unlinked_temporary_fd(descriptor)
+            os.link(
+                f"/proc/self/fd/{descriptor}",
+                probe_name,
+                dst_dir_fd=parent_fd,
+                follow_symlinks=True,
+            )
+            os.unlink(probe_name, dir_fd=parent_fd)
+        except (ApplyRefused, OSError) as exc:
+            self.skipTest(f"descriptor-bound atomic publication unavailable: {exc.__class__.__name__}")
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            os.close(parent_fd)
+
+    @_requires_descriptor_bound_publication
     def test_only_trusted_owner_can_issue_the_one_time_apply_token(self) -> None:
         proposal = self.propose()
 
@@ -137,7 +196,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.assertEqual(ApplyOutcome.APPLIED, self.applier.apply(proposal_id=proposal["proposal_id"], token=token).outcome)
         self.assertEqual(b"new note\n", (self.notes / "note.md").read_bytes())
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     def test_proposal_caller_cannot_choose_identity_fingerprint_or_owner_session(self) -> None:
         with self.assertRaises(TypeError):
             self.applier.propose(  # type: ignore[call-arg]
@@ -154,7 +213,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.assertEqual(ApplyOutcome.APPLIED, self.applier.apply(proposal_id=altered_view["proposal_id"], token=token).outcome)
         self.assertEqual(b"server-owned\n", (self.notes / "note.md").read_bytes())
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     def test_token_and_owner_session_substitution_are_refused(self) -> None:
         first = self.propose(path="Notes/first.md", data=b"first\n")
         second = self.propose(path="Notes/second.md", data=b"second\n")
@@ -187,7 +246,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.assertEqual(b"reviewed bytes\n", target.read_bytes())
         self.assertEqual([], self.applier.audit.records())
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     def test_create_absent_publishes_only_after_the_temporary_file_is_complete(self) -> None:
         target = self.notes / "note.md"
         data = b"complete\x00\r\nbytes"
@@ -208,7 +267,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.assertEqual(data, target.read_bytes())
         self.assertEqual(["pending", "applied"], [record["outcome"] for record in self.applier.audit.records()])
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     def test_temporary_name_hard_link_substitution_cannot_publish_unapproved_bytes(self) -> None:
         """A substituted legacy-style temporary name cannot affect the fd source."""
 
@@ -246,7 +305,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.assertEqual(approved, target.read_bytes())
         self.assertEqual(b"unapproved bytes\n", (self.notes / ".cognitiveos-create-substitution").read_bytes())
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     def test_create_race_is_a_conflict_never_an_overwrite(self) -> None:
         target = self.notes / "note.md"
         proposal = self.propose(data=b"approved\n")
@@ -264,7 +323,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.assertEqual(b"concurrent creator\n", target.read_bytes())
         self.assertEqual(["pending", "conflict"], [record["outcome"] for record in self.applier.audit.records()])
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     def test_after_open_parent_rename_cannot_publish_outside_the_vault(self) -> None:
         proposal = self.propose(path="Notes/renamed-parent.md", data=b"approved\n")
         token = self.approve(proposal)
@@ -332,7 +391,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.assertEqual(ApplyOutcome.REFUSED, result.outcome)
         self.assertFalse((self.notes / "note.md").exists())
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     def test_pending_audit_is_durable_before_atomic_publication(self) -> None:
         proposal = self.propose()
         token = self.approve(proposal)
@@ -348,7 +407,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
 
         self.assertEqual(ApplyOutcome.APPLIED, result.outcome)
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     def test_audit_uses_redaction_and_rejects_tampered_chain(self) -> None:
         proposal = self.propose(data=b"private source text must not reach audit\n")
         token = self.approve(proposal)
@@ -366,7 +425,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         with self.assertRaises(ApplyRefused):
             self.applier.audit.records()
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     def test_audit_tail_truncation_is_detected_by_the_external_boundary(self) -> None:
         proposal = self.propose(data=b"auditable\n")
         token = self.approve(proposal)
@@ -387,7 +446,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         )
         self.assertFalse((self.notes / "blocked-after-truncation.md").exists())
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     def test_recovery_serializes_read_verify_append_and_never_writes_source(self) -> None:
         proposal = self.propose(data=b"published before interruption\n")
         token = self.approve(proposal)
@@ -409,7 +468,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         self.assertEqual(before_recovery, target.read_bytes())
         self.assertEqual("recovery", recovered[0]["kind"])
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     @unittest.skipUnless("fork" in multiprocessing.get_all_start_methods(), "requires POSIX fork")
     def test_cross_process_recovery_claims_pending_evidence_once(self) -> None:
         proposal = self.propose(data=b"published before concurrent recovery\n")
@@ -461,7 +520,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         )
         self.assertFalse((self.notes / "no-lock-split.md").exists())
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     @unittest.skipUnless("fork" in multiprocessing.get_all_start_methods(), "requires POSIX fork")
     def test_cross_process_audit_chain_is_serialized_and_verified(self) -> None:
         context = multiprocessing.get_context("fork")
@@ -617,7 +676,7 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
         )
         self.assertFalse((self.notes / "restart.md").exists())
 
-    @_REQUIRES_DESCRIPTOR_BOUND_PUBLICATION
+    @_requires_descriptor_bound_publication
     def test_path_escape_symlink_and_replay_are_refused(self) -> None:
         for path in ("Notes/../outside.md", "/Notes/note.md", "Notes\\note.md", "Notes/note.txt"):
             with self.subTest(path=path), self.assertRaises(ApplyRefused):

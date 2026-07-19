@@ -31,7 +31,17 @@ _CHECKSUM_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _OPAQUE_RE = re.compile(r"[A-Za-z0-9._-]{1,200}\Z")
 _REQUEST_ORIGIN_RE = re.compile(r"[A-Za-z0-9._-]{1,128}\Z")
 _TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\Z")
-_WINDOWS_RESERVED_RE = re.compile(r'[<>:"|?*]')
+_WINDOWS_INVALID_CHARACTER_RE = re.compile(r'[<>:"|?*]')
+_WINDOWS_RESERVED_BASENAMES = frozenset(
+    {
+        "con",
+        "prn",
+        "aux",
+        "nul",
+        *(f"com{number}" for number in range(1, 10)),
+        *(f"lpt{number}" for number in range(1, 10)),
+    }
+)
 
 
 class ProposalValidationError(ValueError):
@@ -128,7 +138,8 @@ def canonical_relative_markdown_path(value: object) -> str:
         not component
         or component in {".", ".."}
         or component.endswith((".", " "))
-        or _WINDOWS_RESERVED_RE.search(component)
+        or _WINDOWS_INVALID_CHARACTER_RE.search(component)
+        or _is_windows_reserved_component(component)
         or any(ord(character) < 32 for character in component)
         for component in components
     ):
@@ -136,6 +147,18 @@ def canonical_relative_markdown_path(value: object) -> str:
     if not value.endswith(".md"):
         raise ProposalValidationError("invalid_path")
     return value
+
+
+def _is_windows_reserved_component(component: str) -> bool:
+    """Reject Windows device basenames, including extension forms.
+
+    Windows reserves these names independently of extension and case.  It
+    also ignores trailing spaces and periods in the basename, so treat those
+    spellings as reserved before accepting a portable vault path.
+    """
+
+    basename = component.split(".", 1)[0].rstrip(". ").casefold()
+    return basename in _WINDOWS_RESERVED_BASENAMES
 
 
 def validate_proposal(

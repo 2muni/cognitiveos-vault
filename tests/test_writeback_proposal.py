@@ -11,6 +11,7 @@ from cognitiveos.approval import sha256_checksum
 from cognitiveos.atomic_apply import AtomicSingleFileApplier, provision_audit_boundary
 from cognitiveos.writeback_proposal import (
     ProposalValidationError,
+    canonical_relative_markdown_path,
     compute_proposal_fingerprint,
     render_unified_byte_diff_v1,
     validate_proposal,
@@ -153,6 +154,36 @@ class ProposalContractValidationTests(unittest.TestCase):
         proposal["proposal_fingerprint"] = compute_proposal_fingerprint(proposal)
         with self.assertRaises(ProposalValidationError):
             self.validate(proposal)
+
+    def test_windows_reserved_device_basenames_are_rejected_case_insensitively(self) -> None:
+        rejected = (
+            "Notes/CON.md",
+            "Notes/con.backup.md",
+            "Notes/PrN.md",
+            "Notes/AuX.draft.md",
+            "Notes/nUl.md",
+            "Notes/COM1.md",
+            "Notes/cOm9.archive.md",
+            "Notes/LPT1.md",
+            "Notes/lPt9.notes.md",
+            "Notes/CON .md",
+        )
+        accepted = (
+            "Notes/COM0.md",
+            "Notes/COM10.md",
+            "Notes/COM1x.md",
+            "Notes/LPT0.md",
+            "Notes/LPT10.md",
+            "Notes/CONSOLE.md",
+            "Notes/auxiliary.md",
+        )
+
+        for path in rejected:
+            with self.subTest(path=path), self.assertRaisesRegex(ProposalValidationError, "invalid_path"):
+                canonical_relative_markdown_path(path)
+        for path in accepted:
+            with self.subTest(path=path):
+                self.assertEqual(path, canonical_relative_markdown_path(path))
 
 
 if __name__ == "__main__":

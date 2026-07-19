@@ -1167,61 +1167,60 @@ class AtomicSingleFileApplier:
         return ("applied_verified" if hmac.compare_digest(observed_checksum, expected) else "indeterminate", observed_checksum)
 
     def _publish_absent(self, relative: str, data: bytes) -> None:
-        """Publish complete bytes with link-at-if-absent; never stream to target."""
+        """Publish verified bytes from an anonymous descriptor if absent.
+
+        A name-based temporary file is not safe here: an attacker who can
+        replace that name with a hard link between verification and ``link``
+        can make unreviewed bytes visible at the final path.  Linux
+        ``O_TMPFILE`` keeps the staged inode unnamed, and the procfs fd entry
+        used below resolves to the still-open descriptor rather than a
+        replaceable directory entry.  There is intentionally no unsafe
+        name-based fallback on platforms or filesystems without this
+        descriptor-bound primitive.
+        """
+
+        if not self._descriptor_bound_atomic_create_supported():
+            raise ApplyRefused("atomic_create_unsupported")
 
         parent_fd, name = self._open_parent(relative)
-        temporary = f".cognitiveos-create-{secrets.token_hex(24)}"
         descriptor = -1
-        published = False
         try:
             try:
                 descriptor = os.open(
-                    temporary,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    ".",
+                    os.O_WRONLY | os.O_TMPFILE,
                     0o600,
                     dir_fd=parent_fd,
                 )
-                self._verify_regular_fd(descriptor)
+                self._verify_unlinked_temporary_fd(descriptor)
                 self._write_and_sync(descriptor, data)
-            finally:
-                if descriptor >= 0:
-                    os.close(descriptor)
-                    descriptor = -1
+                self._verify_unlinked_temporary_fd(descriptor)
+            except OSError as exc:
+                if exc.errno in {errno.EINVAL, errno.EISDIR, errno.ENOSYS, errno.EOPNOTSUPP, errno.EPERM}:
+                    raise ApplyRefused("atomic_create_unsupported") from exc
+                raise
             try:
                 os.link(
-                    temporary,
+                    f"/proc/self/fd/{descriptor}",
                     name,
-                    src_dir_fd=parent_fd,
                     dst_dir_fd=parent_fd,
-                    follow_symlinks=False,
+                    follow_symlinks=True,
                 )
             except FileExistsError as exc:
                 raise _CreateConflict from exc
             except (NotImplementedError, TypeError) as exc:
                 raise ApplyRefused("atomic_create_unsupported") from exc
             except OSError as exc:
-                if exc.errno in {errno.EOPNOTSUPP, errno.ENOSYS}:
+                if exc.errno in {errno.EINVAL, errno.EPERM, errno.EXDEV, errno.EOPNOTSUPP, errno.ENOSYS}:
                     raise ApplyRefused("atomic_create_unsupported") from exc
                 raise
-            published = True
             try:
-                os.fsync(parent_fd)
-                os.unlink(temporary, dir_fd=parent_fd)
-                temporary = ""
                 os.fsync(parent_fd)
             except OSError as exc:
                 raise _PublishedFailure(str(exc)) from exc
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
-            if temporary:
-                try:
-                    os.unlink(temporary, dir_fd=parent_fd)
-                except FileNotFoundError:
-                    pass
-                except OSError:
-                    if published:
-                        pass
             os.close(parent_fd)
 
     def _read_regular(self, relative: str) -> bytes:
@@ -1552,6 +1551,14 @@ class AtomicSingleFileApplier:
             raise ApplyRefused("unsafe_target")
 
     @staticmethod
+    def _verify_unlinked_temporary_fd(descriptor: int) -> None:
+        """Require the anonymous staging inode used for descriptor publication."""
+
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 0:
+            raise ApplyRefused("unsafe_target")
+
+    @staticmethod
     def _write_and_sync(descriptor: int, data: bytes) -> None:
         offset = 0
         while offset < len(data):
@@ -1573,6 +1580,26 @@ class AtomicSingleFileApplier:
             or os.link not in os.supports_dir_fd
         ):
             raise ApplyRefused("unsupported_platform")
+
+    @staticmethod
+    def _descriptor_bound_atomic_create_supported() -> bool:
+        """Return whether this process exposes the safe publication primitive.
+
+        ``/proc/self/fd/<fd>`` is a Linux fd-backed magic link.  With
+        ``follow_symlinks=True`` it lets ``linkat`` publish the anonymous
+        ``O_TMPFILE`` inode referenced by the verified descriptor.  Other
+        platforms may offer hard links, but not this descriptor-bound,
+        create-if-absent primitive; they must fail closed instead.
+        """
+
+        return (
+            sys.platform.startswith("linux")
+            and hasattr(os, "O_TMPFILE")
+            and os.open in os.supports_dir_fd
+            and os.link in os.supports_dir_fd
+            and os.link in os.supports_follow_symlinks
+            and os.path.isdir("/proc/self/fd")
+        )
 
 
 def _json_clone(value: dict[str, Any]) -> dict[str, Any]:

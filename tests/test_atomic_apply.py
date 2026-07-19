@@ -158,14 +158,15 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
     def approve(self, proposal: dict[str, object]) -> str:
         return self.applier.approve_from_trusted_owner(self.owner.confirm(proposal))
 
-    def require_descriptor_bound_publication(self) -> None:
-        """Skip success-path tests when the filesystem correctly fails closed."""
+    def descriptor_bound_publication_available(self) -> bool:
+        """Probe the entire safe publication sequence without exposing target bytes."""
 
         if not AtomicSingleFileApplier._descriptor_bound_atomic_create_supported():
-            self.skipTest("requires Linux descriptor-bound atomic publication primitives")
+            return False
         parent_fd = os.open(self.notes, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         descriptor = -1
         probe_name = ".cognitiveos-descriptor-probe"
+        linked = False
         try:
             descriptor = os.open(".", os.O_WRONLY | os.O_TMPFILE, 0o600, dir_fd=parent_fd)
             AtomicSingleFileApplier._verify_unlinked_temporary_fd(descriptor)
@@ -178,13 +179,28 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
                 dst_dir_fd=parent_fd,
                 follow_symlinks=True,
             )
+            linked = True
+            os.fsync(parent_fd)
             os.unlink(probe_name, dir_fd=parent_fd)
-        except (ApplyRefused, OSError) as exc:
-            self.skipTest(f"descriptor-bound atomic publication unavailable: {exc.__class__.__name__}")
+            linked = False
+            return True
+        except (ApplyRefused, OSError):
+            return False
         finally:
+            if linked:
+                try:
+                    os.unlink(probe_name, dir_fd=parent_fd)
+                except OSError:
+                    pass
             if descriptor >= 0:
                 os.close(descriptor)
             os.close(parent_fd)
+
+    def require_descriptor_bound_publication(self) -> None:
+        """Run APPLIED assertions only after the whole safe primitive succeeds."""
+
+        if not self.descriptor_bound_publication_available():
+            self.skipTest("descriptor-bound atomic publication is unavailable on this filesystem")
 
     @_requires_descriptor_bound_publication
     def test_only_trusted_owner_can_issue_the_one_time_apply_token(self) -> None:
@@ -279,6 +295,8 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
 
         target = self.notes / "note.md"
         approved = b"approved bytes\n"
+        reviewed_temporary = self.notes / ".cognitiveos-reviewed-temporary"
+        reviewed_temporary.write_bytes(approved)
         unapproved = self.notes / "unapproved.md"
         unapproved.write_bytes(b"unapproved bytes\n")
         proposal = self.propose(data=approved)
@@ -291,12 +309,16 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
             self.assertIsInstance(parent_fd, int)
             temporary = ".cognitiveos-create-substitution"
 
-            # Reproduce the Issue #48 attack: the temporary name initially
-            # references the reviewed inode, then an attacker replaces it with
-            # a hard link to unreviewed bytes before final publication.
-            original_link(source, temporary, dst_dir_fd=parent_fd, follow_symlinks=True)
+            # Reproduce the Issue #48 attack: a legacy temporary name first
+            # references reviewed bytes, then an attacker replaces it with a
+            # hard link to unreviewed bytes before final publication.  Keep
+            # this legacy inode separate from the active O_TMPFILE descriptor:
+            # linking and unlinking that descriptor would change the kernel
+            # object whose one publication call the test needs to verify.
+            original_link(str(reviewed_temporary), temporary, dst_dir_fd=parent_fd, follow_symlinks=True)
             os.unlink(temporary, dir_fd=parent_fd)
             original_link(str(unapproved), temporary, dst_dir_fd=parent_fd, follow_symlinks=True)
+            self.assertEqual(approved, reviewed_temporary.read_bytes())
             self.assertEqual(b"unapproved bytes\n", (self.notes / temporary).read_bytes())
             self.assertEqual(os.stat(unapproved).st_ino, os.stat(self.notes / temporary).st_ino)
 
@@ -393,6 +415,17 @@ class AtomicSingleFileApplyTests(unittest.TestCase):
 
         with mock.patch("cognitiveos.atomic_apply.os.link", side_effect=NotImplementedError):
             result = self.applier.apply(proposal_id=proposal["proposal_id"], token=token)
+
+        self.assertEqual(ApplyOutcome.REFUSED, result.outcome)
+        self.assertFalse((self.notes / "note.md").exists())
+
+    def test_unavailable_descriptor_primitive_refuses_without_creating_a_target(self) -> None:
+        if self.descriptor_bound_publication_available():
+            self.skipTest("requires an unavailable descriptor-bound publication primitive")
+
+        proposal = self.propose()
+        token = self.approve(proposal)
+        result = self.applier.apply(proposal_id=proposal["proposal_id"], token=token)
 
         self.assertEqual(ApplyOutcome.REFUSED, result.outcome)
         self.assertFalse((self.notes / "note.md").exists())

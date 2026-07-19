@@ -1193,6 +1193,14 @@ class AtomicSingleFileApplier:
         parent_fd, name = self._open_parent(relative)
         descriptor = -1
         try:
+            # Probe the directory durability primitive before the final name
+            # can become visible.  Filesystems that cannot sync this directory
+            # are not a supported atomic-publication target, so refuse before
+            # creating an anonymous staging inode or publishing any bytes.
+            try:
+                os.fsync(parent_fd)
+            except OSError as exc:
+                raise ApplyRefused("atomic_create_unsupported") from exc
             try:
                 descriptor = os.open(
                     ".",

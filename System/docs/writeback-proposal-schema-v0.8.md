@@ -36,8 +36,10 @@ diff, template, model output, or current source text.
 - IDs and fingerprints are opaque ASCII strings. A future implementation MUST
   document their generation and validate length/character bounds, without
   treating their spelling as authorization.
-- `base64` means RFC 4648 standard base64 with padding. It represents the
-  exact sequence of bytes, including any BOM, line ending, and final newline.
+- `base64` means the unique canonical RFC 4648 standard base64 spelling with
+  required padding. It represents the exact sequence of bytes, including any
+  BOM, line ending, and final newline. Alternate alphabets, ignored whitespace,
+  omitted padding, and non-zero unused pad bits are invalid.
 
 ## Proposal Schema
 
@@ -176,8 +178,11 @@ conflicted attempt; it is never restored or retried.
 
 `expires_at` MUST be no more than ten minutes after `issued_at`. The private
 record also stores a monotonic deadline calculated at issuance. A restart,
-policy/root identity change, approval-session end, cancellation, missing
-private record, or either deadline expiring invalidates the proposal.
+server/policy/root identity change, approval-session end, cancellation, missing
+private record, or either deadline expiring invalidates the proposal. The
+server clears private state and any unissued token when it observes one of
+these lifecycle events; it must not resume stale approval after a restart or
+identity change.
 
 Immediately before a future apply, the server re-resolves the configured root,
 allowed root, parent, and target with the threat model's no-follow checks. It
@@ -212,6 +217,14 @@ It MUST omit `proposed_bytes_base64`, `rendered_diff`, raw approval token,
 token digest/binding, approval-session binding, request-origin details, note
 content, prompts, credentials, environment values, and absolute paths. Audit
 persistence failure is a refusal before source mutation.
+
+The implementation also maintains an owner-only, HMAC-authenticated journal
+boundary outside the JSONL journal directory. That boundary commits to the
+latest journal sequence, entry digest, and established cross-process lock
+identity. Reading, appending, or recovering requires the protected boundary to
+match while that lock is held; a missing, changed, or malformed boundary fails
+closed. Provisioning or rotating this external checkpoint is an explicit
+operator action, never automatic recovery during an apply request.
 
 ## Required Rejections
 

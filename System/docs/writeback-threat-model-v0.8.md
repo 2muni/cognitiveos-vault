@@ -118,6 +118,10 @@ For every target, the server MUST:
 - normalize separators and compare path *components*, never an untrusted
   string prefix; reject an ambiguous or non-portable spelling rather than
   silently changing its meaning;
+- compare denied-root names using the configured filesystem's case semantics,
+  and require every existing allowed-root and parent component to use the
+  filesystem entry's canonical spelling; if either guarantee is unavailable,
+  that root is unsupported and writeback remains read-only;
 - resolve the configured vault root and candidate parent with symlink/junction
   following disabled where the platform permits it, then verify both are below
   the canonical vault root and the selected allowed root;
@@ -151,10 +155,13 @@ server-generated record containing at least:
 
 The server, not the client, computes timestamps, checksums, preview, and
 fingerprint. The maximum proposal lifetime is ten minutes. A proposal expires
-earlier when the server restarts, the policy changes, the owner ends the
-approval session, or the proposal is explicitly cancelled. Expiry uses a
-server-side monotonic deadline as well as its recorded wall-clock timestamp so
-that client clocks and ordinary clock changes cannot prolong authority.
+earlier when the server restarts, its server/root/policy identity changes, the
+owner ends the approval session, or the proposal is explicitly cancelled. Each
+lifecycle event invalidates the private record and clears any unissued approval
+token; a later apply must not merely discover the change after it has started.
+Expiry uses a server-side monotonic deadline as well as its recorded wall-clock
+timestamp so that client clocks and ordinary clock changes cannot prolong
+authority.
 
 Proposal records and approval tokens are stored only in server-controlled,
 owner-readable local state. Tokens must be at least 256 bits from a
@@ -232,6 +239,15 @@ the service account and include a monotonic sequence or chained previous-entry
 digest so local tampering is detectable during review. Retention and export
 are operator actions outside an apply request.
 
+The journal head is additionally bound to an owner-only, HMAC-authenticated
+checkpoint outside the journal directory. The checkpoint records the final
+sequence, final entry digest, and immutable audit-lock identity. Every read,
+append, and recovery verifies that boundary while holding that exact
+cross-process lock. A missing, replaced, malformed, or mismatched checkpoint
+is an audit failure; initialization or rotation is a deliberate operator setup
+action and is never an apply-time repair. This prevents deleting valid final
+JSONL entries from being misread as a shorter valid history.
+
 Each entry contains only the minimum useful evidence:
 
 - schema and policy versions, journal sequence, proposal fingerprint, and
@@ -259,7 +275,7 @@ recovery requirements.
 | Preview/fingerprint/operation/path does not match approved record | Refuse as tampered |
 | Audit pending record cannot be made durable | Refuse before mutation |
 | Atomic write, final checksum verification, or audit finalization fails | Return failed or indeterminate; consume proposal; require human inspection and a fresh proposal |
-| Server restart, session loss, or policy reload | Invalidate outstanding proposals; no automatic resume |
+| Server restart, session loss/cancellation, or server/root/policy identity reload | Invalidate outstanding proposals; no automatic resume |
 | Client disconnect or timeout | Do not continue an unconfirmed apply; terminal state is recorded if consumption already occurred |
 
 Errors returned to an MCP client should be structured and avoid leaking
@@ -298,12 +314,15 @@ Before a write tool is enabled, security-focused tests must cover at least:
 
 - default deny and no write-tool exposure in the MCP tool list;
 - every rejected path form, allowed-root escape, symlink/junction traversal,
-  special-file target, and case/prefix ambiguity supported by the platform;
+  special-file target, denied-root case variant, and case/prefix ambiguity
+  supported by the platform;
 - unapproved, expired, cancelled, altered, cross-session, concurrent, and
   replayed proposals;
 - exact preview/fingerprint binding, byte-level checksum conflict, absent-target
   create race, and final after-checksum verification;
-- failure before source mutation when audit persistence is unavailable; and
+- failure before source mutation when audit persistence is unavailable;
+- cross-process recovery ownership/lock replacement, and retained-entry or
+  final-tail truncation against the anchored audit boundary; and
 - simulated interruption at each state transition, with no automatic retry or
   source-changing recovery.
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .safety import SKIPPED_DIRS, resolve_vault_root
+from .safety import is_skipped_directory_component, resolve_vault_root
 
 
 def iter_markdown_files(vault_root: str | Path) -> list[Path]:
@@ -16,4 +16,4 @@ def iter_markdown_files(vault_root: str | Path) -> list[Path]:
 
 
 def is_skipped_part(part: str) -> bool:
-    return part in SKIPPED_DIRS or part.startswith(".venv-")
+    return is_skipped_directory_component(part)

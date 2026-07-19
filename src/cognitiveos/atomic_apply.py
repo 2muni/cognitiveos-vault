@@ -1,0 +1,1677 @@
+"""Dormant, server-owned, atomic-create writeback boundary.
+
+This module is intentionally absent from the MCP server.  A future trusted
+local approval UI may use it only after supplying an authenticated owner
+authority and a server-owned audit key.  It refuses existing-file replacement:
+POSIX ``rename``/``replace`` cannot conditionally replace the exact inode that
+was reviewed, and this module has no verified whole-writer coordinator.
+"""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+import ctypes
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+import base64
+import errno
+import hashlib
+import hmac
+import json
+import os
+from pathlib import Path
+import secrets
+import stat
+import sys
+import threading
+import time
+from typing import Any, Callable, Iterator
+
+# ``os.supports_*`` contains the native function objects present at import
+# time.  Keep these two facts stable even when a focused test instruments
+# ``os.link`` to simulate an attacker racing final publication.  The actual
+# publication call still uses ``os.link`` and continues to fail closed if the
+# active implementation cannot provide the requested semantics.
+_NATIVE_LINK_SUPPORTS_DIR_FD = os.link in os.supports_dir_fd
+_NATIVE_LINK_SUPPORTS_FOLLOW_SYMLINKS = os.link in os.supports_follow_symlinks
+
+try:  # v0.8 deliberately remains read-only where advisory process locks lack support.
+    import fcntl
+except ImportError:  # pragma: no cover - exercised by platform capability checks.
+    fcntl = None  # type: ignore[assignment]
+
+from .approval import (
+    MAX_APPROVAL_LIFETIME_SECONDS,
+    OwnerConfirmation,
+    TrustedOwnerAuthority,
+    sha256_checksum,
+)
+from .safety import is_writeback_denied_directory_component
+from .writeback_proposal import (
+    AUDIT_SCHEMA_VERSION,
+    POLICY_VERSION,
+    PROPOSAL_SCHEMA_VERSION,
+    ProposalValidationError,
+    canonical_json,
+    canonical_relative_markdown_path,
+    compute_proposal_fingerprint,
+    render_unified_byte_diff_v1,
+    validate_proposal,
+)
+
+
+class ApplyOutcome(str, Enum):
+    APPLIED = "applied"
+    CONFLICT = "conflict"
+    REFUSED = "refused"
+    FAILED = "failed"
+    INDETERMINATE = "indeterminate"
+
+
+@dataclass(frozen=True)
+class ApplyResult:
+    """A non-sensitive result for the caller that requested its proposal."""
+
+    outcome: ApplyOutcome
+    proposal_id: str
+
+
+class ApplyRefused(ValueError):
+    """A non-sensitive refusal that never contains an absolute path or bytes."""
+
+
+@dataclass
+class _PreparedProposal:
+    public: dict[str, Any]
+    base_bytes: bytes
+    proposed_bytes: bytes
+    token_digest: bytes
+    raw_token: str | None
+    monotonic_deadline: float
+    lifecycle_binding: bytes
+    state: str = "proposed"
+    approval_at: str | None = None
+
+
+class _CreateConflict(Exception):
+    """The final path appeared before atomic publication."""
+
+
+class _PublishedFailure(OSError):
+    """A failure after the hard link made complete bytes visible at the target."""
+
+
+class _AuditJournal:
+    """Owner-only HMAC chained JSONL journal serialized across processes.
+
+    The server owns ``key`` and must retain it outside this derived directory.
+    The journal's directory and every opened file are checked for identity,
+    ownership, restrictive mode, regular-file type, and link count.  Advisory
+    locks are not authorization for source writes; they serialize the audit
+    read/verify/append/fsync transaction so a concurrent process cannot fork
+    or overwrite the chain.
+    """
+
+    _APPLY_FIELDS = {
+        "kind",
+        "schema_version",
+        "policy_version",
+        "journal_scope",
+        "proposal_fingerprint",
+        "proposal_id_redaction",
+        "operation",
+        "path",
+        "vault_root_id",
+        "allowed_root_id",
+        "issued_at",
+        "expires_at",
+        "approval_at",
+        "outcome",
+        "base_checksum",
+        "expected_after_checksum",
+        "observed_after_checksum",
+        "changed_path_count",
+        "server_instance_id",
+        "error_category",
+    }
+    _JOURNAL_FIELDS = _APPLY_FIELDS | {"journal_sequence", "previous_entry_digest", "entry_digest"}
+    _BOUNDARY_SCHEMA_VERSION = "writeback-audit-boundary/v0.8"
+    _BOUNDARY_FIELDS = {
+        "schema_version",
+        "journal_sequence",
+        "entry_digest",
+        "journal_lock_identity",
+        "boundary_digest",
+    }
+    _FORBIDDEN_FIELDS = {
+        "proposal_id",
+        "proposed_bytes_base64",
+        "rendered_diff",
+        "token",
+        "token_digest",
+        "token_binding",
+        "approval_session_binding",
+        "request_origin",
+        "owner_session_binding",
+    }
+
+    def __init__(self, directory: Path, *, key: bytes, boundary_path: Path) -> None:
+        if not isinstance(key, bytes) or len(key) < 32:
+            raise ApplyRefused("audit_unavailable")
+        self._key = key
+        self._directory = directory
+        self._boundary_path = boundary_path
+        self._thread_lock = threading.RLock()
+        self._directory_identity = self._check_directory()
+        self._boundary_parent = boundary_path.parent
+        self._boundary_parent_identity = self._check_secure_directory(self._boundary_parent)
+        if self._boundary_parent_identity == self._directory_identity or not boundary_path.name:
+            raise ApplyRefused("audit_unavailable")
+        self._directory_fd = -1
+        self._boundary_parent_fd = -1
+        self._lock_fd = -1
+        self._boundary_identity: tuple[int, int] | None = None
+        self._held_lock_identity: tuple[int, int] | None = None
+        try:
+            self._directory_fd = os.open(
+                directory,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+            self._boundary_parent_fd = os.open(
+                self._boundary_parent,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+        except OSError as exc:
+            if self._directory_fd >= 0:
+                os.close(self._directory_fd)
+                self._directory_fd = -1
+            raise ApplyRefused("audit_unavailable") from exc
+        try:
+            if (
+                self._fd_identity(self._directory_fd) != self._directory_identity
+                or self._fd_identity(self._boundary_parent_fd) != self._boundary_parent_identity
+            ):
+                raise ApplyRefused("audit_unavailable")
+            self._lock_fd = self._open_regular("journal.lock", os.O_RDWR, create=False)
+            self._lock_identity = self._fd_identity(self._lock_fd)
+            try:
+                boundary_fd = self._open_boundary_regular(os.O_RDONLY, create=False)
+            except FileNotFoundError as exc:
+                raise ApplyRefused("audit_unavailable") from exc
+            try:
+                self._boundary_identity = self._fd_identity(boundary_fd)
+            finally:
+                os.close(boundary_fd)
+            with self._exclusive_lock():
+                self._read_verified_locked()
+        except Exception:
+            if self._lock_fd >= 0:
+                os.close(self._lock_fd)
+                self._lock_fd = -1
+            if getattr(self, "_boundary_parent_fd", -1) >= 0:
+                os.close(self._boundary_parent_fd)
+                self._boundary_parent_fd = -1
+            os.close(self._directory_fd)
+            self._directory_fd = -1
+            raise
+
+    def close(self) -> None:
+        self._held_lock_identity = None
+        for descriptor_name in ("_lock_fd", "_boundary_parent_fd", "_directory_fd"):
+            descriptor = getattr(self, descriptor_name, -1)
+            if descriptor >= 0:
+                os.close(descriptor)
+                setattr(self, descriptor_name, -1)
+
+    @classmethod
+    def provision_boundary(cls, directory: Path, *, key: bytes, boundary_path: Path) -> None:
+        """Explicitly initialize a new external audit boundary.
+
+        This is a trusted operator/setup action, never an apply-time repair.
+        Once provisioned, a missing or malformed boundary is a refusal; a
+        later server must not silently treat a truncated journal as new.
+        """
+
+        if not isinstance(key, bytes) or len(key) < 32:
+            raise ApplyRefused("audit_unavailable")
+        directory_identity = cls._check_secure_directory(directory)
+        boundary_parent = boundary_path.parent
+        boundary_parent_identity = cls._check_secure_directory(boundary_parent)
+        if directory_identity == boundary_parent_identity or not boundary_path.name:
+            raise ApplyRefused("audit_unavailable")
+        directory_fd = -1
+        boundary_parent_fd = -1
+        try:
+            directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            boundary_parent_fd = os.open(boundary_parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError as exc:
+            if directory_fd >= 0:
+                os.close(directory_fd)
+            raise ApplyRefused("audit_unavailable") from exc
+        lock_fd = -1
+        boundary_fd = -1
+        try:
+            if (
+                cls._fd_identity(directory_fd) != directory_identity
+                or cls._fd_identity(boundary_parent_fd) != boundary_parent_identity
+            ):
+                raise ApplyRefused("audit_unavailable")
+            try:
+                os.stat("journal.jsonl", dir_fd=directory_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                raise ApplyRefused("audit_unavailable")
+            lock_fd = os.open(
+                "journal.lock",
+                os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=directory_fd,
+            )
+            cls._verify_regular_fd(lock_fd)
+            lock_identity = cls._identity_text(cls._fd_identity(lock_fd))
+            boundary = {
+                "schema_version": cls._BOUNDARY_SCHEMA_VERSION,
+                "journal_sequence": 0,
+                "entry_digest": None,
+                "journal_lock_identity": lock_identity,
+                "boundary_digest": "",
+            }
+            boundary["boundary_digest"] = cls._boundary_digest(key, boundary)
+            boundary_fd = os.open(
+                boundary_path.name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=boundary_parent_fd,
+            )
+            cls._verify_regular_fd(boundary_fd)
+            cls._write_all(boundary_fd, canonical_json(boundary) + b"\n")
+            os.fsync(boundary_fd)
+            os.fsync(directory_fd)
+            os.fsync(boundary_parent_fd)
+        except (ApplyRefused, OSError) as exc:
+            if isinstance(exc, ApplyRefused):
+                raise
+            raise ApplyRefused("audit_unavailable") from exc
+        finally:
+            for descriptor in (boundary_fd, lock_fd, boundary_parent_fd, directory_fd):
+                if descriptor >= 0:
+                    os.close(descriptor)
+
+    def redact_proposal_id(self, proposal_id: str) -> str:
+        digest = hmac.new(self._key, proposal_id.encode("ascii"), hashlib.sha256).hexdigest()[:32]
+        return f"redacted-{digest}"
+
+    def append(self, projection: dict[str, object]) -> dict[str, object]:
+        """Verify the whole chain, append one synchronized projection, and fsync."""
+
+        with self._exclusive_lock():
+            records = self._read_verified_locked()
+            return self._append_locked(records, projection)
+
+    def records(self) -> list[dict[str, object]]:
+        """Return only a fully verified journal snapshot under the process lock."""
+
+        with self._exclusive_lock():
+            return self._read_verified_locked()
+
+    def recover_pending(
+        self, observer: Callable[[dict[str, object]], tuple[str, str | None]]
+    ) -> list[dict[str, object]]:
+        """Finalize pending entries in one locked read/verify/append transaction.
+
+        ``observer`` is read-only.  Recovery never opens a source file for
+        writing and treats an unreadable or changed target as indeterminate.
+        """
+
+        with self._exclusive_lock():
+            records = self._read_verified_locked()
+            finalized = {
+                item["proposal_fingerprint"]
+                for item in records
+                if item["outcome"] != "pending"
+            }
+            recovered: list[dict[str, object]] = []
+            for pending in list(records):
+                fingerprint = pending["proposal_fingerprint"]
+                if pending["outcome"] != "pending" or fingerprint in finalized:
+                    continue
+                outcome, observed_checksum = observer(dict(pending))
+                recovery = {key: pending[key] for key in self._APPLY_FIELDS}
+                recovery.update(
+                    {
+                        "kind": "recovery",
+                        "outcome": outcome,
+                        "observed_after_checksum": observed_checksum,
+                        "error_category": "recovery",
+                    }
+                )
+                entry = self._append_locked(records, recovery)
+                records.append(entry)
+                recovered.append(entry)
+                finalized.add(fingerprint)
+            return recovered
+
+    @contextmanager
+    def _exclusive_lock(self) -> Iterator[None]:
+        if fcntl is None:
+            raise ApplyRefused("audit_unavailable")
+        with self._thread_lock:
+            self._assert_directory_identity()
+            self._assert_lock_identity()
+            self._assert_boundary_identity()
+            try:
+                fcntl.flock(self._lock_fd, fcntl.LOCK_EX)
+            except OSError as exc:
+                raise ApplyRefused("audit_unavailable") from exc
+            try:
+                self._assert_directory_identity()
+                self._assert_lock_identity()
+                self._assert_boundary_identity()
+                self._held_lock_identity = self._lock_identity
+                yield
+                self._assert_directory_identity()
+                self._assert_lock_identity()
+                self._assert_boundary_identity()
+            finally:
+                try:
+                    fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+                finally:
+                    self._held_lock_identity = None
+
+    def _append_locked(self, records: list[dict[str, object]], projection: dict[str, object]) -> dict[str, object]:
+        self._require_held_lock()
+        self._validate_projection(projection)
+        entry = dict(projection)
+        entry["journal_sequence"] = len(records) + 1
+        entry["previous_entry_digest"] = records[-1]["entry_digest"] if records else None
+        entry["entry_digest"] = self._entry_digest(entry)
+        payload = canonical_json(entry) + b"\n"
+        descriptor = self._open_regular("journal.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, create=True)
+        try:
+            self._write_all(descriptor, payload)
+            os.fsync(descriptor)
+        except OSError as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+        finally:
+            os.close(descriptor)
+        try:
+            os.fsync(self._directory_fd)
+        except OSError as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+        self._write_boundary_locked(entry)
+        return entry
+
+    def _read_verified_locked(self) -> list[dict[str, object]]:
+        self._require_held_lock()
+        typed_records: list[dict[str, object]] = []
+        try:
+            descriptor = self._open_regular("journal.jsonl", os.O_RDONLY, create=False)
+        except FileNotFoundError:
+            pass
+        else:
+            try:
+                chunks: list[bytes] = []
+                while block := os.read(descriptor, 64 * 1024):
+                    chunks.append(block)
+            except OSError as exc:
+                raise ApplyRefused("audit_unavailable") from exc
+            finally:
+                os.close(descriptor)
+            raw = b"".join(chunks)
+            if raw and not raw.endswith(b"\n"):
+                raise ApplyRefused("audit_unavailable")
+            try:
+                records = [json.loads(line) for line in raw.splitlines() if line]
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ApplyRefused("audit_unavailable") from exc
+            if not all(isinstance(record, dict) for record in records):
+                raise ApplyRefused("audit_unavailable")
+            typed_records = [dict(record) for record in records]
+        self._verify_chain(typed_records)
+        self._verify_boundary_locked(typed_records)
+        return typed_records
+
+    def _verify_chain(self, records: list[dict[str, object]]) -> None:
+        previous: str | None = None
+        for sequence, record in enumerate(records, start=1):
+            self._validate_journal_entry(record)
+            digest = record["entry_digest"]
+            if (
+                record["journal_sequence"] != sequence
+                or record["previous_entry_digest"] != previous
+                or not isinstance(digest, str)
+                or not hmac.compare_digest(digest, self._entry_digest(record))
+            ):
+                raise ApplyRefused("audit_unavailable")
+            previous = digest
+
+    def _read_boundary_locked(self) -> dict[str, object]:
+        self._require_held_lock()
+        try:
+            descriptor = self._open_boundary_regular(os.O_RDONLY, create=False)
+        except FileNotFoundError as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+        try:
+            chunks: list[bytes] = []
+            while block := os.read(descriptor, 64 * 1024):
+                chunks.append(block)
+        except OSError as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+        finally:
+            os.close(descriptor)
+        raw = b"".join(chunks)
+        if not raw.endswith(b"\n"):
+            raise ApplyRefused("audit_unavailable")
+        try:
+            boundary = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+        if not isinstance(boundary, dict) or set(boundary) != self._BOUNDARY_FIELDS:
+            raise ApplyRefused("audit_unavailable")
+        if boundary["schema_version"] != self._BOUNDARY_SCHEMA_VERSION:
+            raise ApplyRefused("audit_unavailable")
+        if type(boundary["journal_sequence"]) is not int or boundary["journal_sequence"] < 0:
+            raise ApplyRefused("audit_unavailable")
+        if boundary["entry_digest"] is not None and not isinstance(boundary["entry_digest"], str):
+            raise ApplyRefused("audit_unavailable")
+        if boundary["journal_lock_identity"] != self._identity_text(self._lock_identity):
+            raise ApplyRefused("audit_unavailable")
+        digest = boundary["boundary_digest"]
+        if not isinstance(digest, str) or not hmac.compare_digest(digest, self._boundary_digest(self._key, boundary)):
+            raise ApplyRefused("audit_unavailable")
+        return dict(boundary)
+
+    def _verify_boundary_locked(self, records: list[dict[str, object]]) -> None:
+        self._require_held_lock()
+        boundary = self._read_boundary_locked()
+        expected_digest = records[-1]["entry_digest"] if records else None
+        if (
+            boundary["journal_sequence"] != len(records)
+            or boundary["entry_digest"] != expected_digest
+        ):
+            raise ApplyRefused("audit_unavailable")
+
+    def _write_boundary_locked(self, entry: dict[str, object]) -> None:
+        self._require_held_lock()
+        boundary: dict[str, object] = {
+            "schema_version": self._BOUNDARY_SCHEMA_VERSION,
+            "journal_sequence": entry["journal_sequence"],
+            "entry_digest": entry["entry_digest"],
+            "journal_lock_identity": self._identity_text(self._lock_identity),
+            "boundary_digest": "",
+        }
+        boundary["boundary_digest"] = self._boundary_digest(self._key, boundary)
+        descriptor = self._open_boundary_regular(os.O_WRONLY | os.O_TRUNC, create=False)
+        try:
+            self._write_all(descriptor, canonical_json(boundary) + b"\n")
+            os.fsync(descriptor)
+        except OSError as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+        finally:
+            os.close(descriptor)
+        try:
+            os.fsync(self._boundary_parent_fd)
+        except OSError as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+
+    def _validate_projection(self, projection: dict[str, object]) -> None:
+        if set(projection) != self._APPLY_FIELDS or self._FORBIDDEN_FIELDS & set(projection):
+            raise ApplyRefused("audit_unavailable")
+        if projection["kind"] not in {"apply", "recovery"}:
+            raise ApplyRefused("audit_unavailable")
+        if projection["schema_version"] != AUDIT_SCHEMA_VERSION or projection["policy_version"] != POLICY_VERSION:
+            raise ApplyRefused("audit_unavailable")
+        if projection["journal_scope"] != "derived-local-only" or projection["changed_path_count"] != 1:
+            raise ApplyRefused("audit_unavailable")
+        for name in (
+            "proposal_fingerprint",
+            "proposal_id_redaction",
+            "operation",
+            "path",
+            "vault_root_id",
+            "allowed_root_id",
+            "issued_at",
+            "expires_at",
+            "approval_at",
+            "server_instance_id",
+            "outcome",
+        ):
+            if not isinstance(projection[name], str) or not projection[name]:
+                raise ApplyRefused("audit_unavailable")
+        for name in ("base_checksum", "expected_after_checksum", "observed_after_checksum", "error_category"):
+            if projection[name] is not None and not isinstance(projection[name], str):
+                raise ApplyRefused("audit_unavailable")
+
+    def _validate_journal_entry(self, entry: dict[str, object]) -> None:
+        if set(entry) != self._JOURNAL_FIELDS or self._FORBIDDEN_FIELDS & set(entry):
+            raise ApplyRefused("audit_unavailable")
+        projection = {key: value for key, value in entry.items() if key in self._APPLY_FIELDS}
+        self._validate_projection(projection)
+        if type(entry["journal_sequence"]) is not int or entry["journal_sequence"] < 1:
+            raise ApplyRefused("audit_unavailable")
+        if entry["previous_entry_digest"] is not None and not isinstance(entry["previous_entry_digest"], str):
+            raise ApplyRefused("audit_unavailable")
+
+    def _entry_digest(self, entry: dict[str, object]) -> str:
+        unsigned = dict(entry)
+        unsigned.pop("entry_digest", None)
+        return "hmac-sha256:" + hmac.new(self._key, canonical_json(unsigned), hashlib.sha256).hexdigest()
+
+    @staticmethod
+    def _check_secure_directory(directory: Path) -> tuple[int, int]:
+        try:
+            info = os.lstat(directory)
+        except OSError as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o077
+        ):
+            raise ApplyRefused("audit_unavailable")
+        return (info.st_dev, info.st_ino)
+
+    def _check_directory(self) -> tuple[int, int]:
+        return self._check_secure_directory(self._directory)
+
+    def _assert_directory_identity(self) -> None:
+        if (
+            self._check_directory() != self._directory_identity
+            or self._fd_identity(self._directory_fd) != self._directory_identity
+            or self._check_secure_directory(self._boundary_parent) != self._boundary_parent_identity
+            or self._fd_identity(self._boundary_parent_fd) != self._boundary_parent_identity
+        ):
+            raise ApplyRefused("audit_unavailable")
+
+    def _assert_lock_identity(self) -> None:
+        self._verify_regular_fd(self._lock_fd)
+        try:
+            info = os.stat("journal.lock", dir_fd=self._directory_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o077
+            or (info.st_dev, info.st_ino) != self._lock_identity
+        ):
+            raise ApplyRefused("audit_unavailable")
+
+    def _assert_boundary_identity(self) -> None:
+        if self._boundary_identity is None:
+            raise ApplyRefused("audit_unavailable")
+        try:
+            info = os.stat(
+                self._boundary_path.name,
+                dir_fd=self._boundary_parent_fd,
+                follow_symlinks=False,
+            )
+        except OSError as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o077
+            or (info.st_dev, info.st_ino) != self._boundary_identity
+        ):
+            raise ApplyRefused("audit_unavailable")
+
+    def _require_held_lock(self) -> None:
+        if self._held_lock_identity != self._lock_identity:
+            raise ApplyRefused("audit_unavailable")
+        self._assert_lock_identity()
+        self._assert_boundary_identity()
+
+    @staticmethod
+    def _fd_identity(descriptor: int) -> tuple[int, int]:
+        info = os.fstat(descriptor)
+        return (info.st_dev, info.st_ino)
+
+    def _open_regular(self, name: str, flags: int, *, create: bool) -> int:
+        mode = 0o600 if create else 0o000
+        try:
+            descriptor = os.open(name, flags | os.O_NOFOLLOW, mode, dir_fd=self._directory_fd)
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+        try:
+            self._verify_regular_fd(descriptor)
+            return descriptor
+        except Exception:
+            os.close(descriptor)
+            raise
+
+    def _open_boundary_regular(self, flags: int, *, create: bool) -> int:
+        mode = 0o600 if create else 0o000
+        try:
+            descriptor = os.open(
+                self._boundary_path.name,
+                flags | os.O_NOFOLLOW,
+                mode,
+                dir_fd=self._boundary_parent_fd,
+            )
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise ApplyRefused("audit_unavailable") from exc
+        try:
+            self._verify_regular_fd(descriptor)
+            if self._boundary_identity is not None and self._fd_identity(descriptor) != self._boundary_identity:
+                raise ApplyRefused("audit_unavailable")
+            return descriptor
+        except Exception:
+            os.close(descriptor)
+            raise
+
+    @staticmethod
+    def _verify_regular_fd(descriptor: int) -> None:
+        info = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o077
+        ):
+            raise ApplyRefused("audit_unavailable")
+
+    @staticmethod
+    def _identity_text(identity: tuple[int, int]) -> str:
+        return f"{identity[0]}:{identity[1]}"
+
+    @staticmethod
+    def _boundary_digest(key: bytes, boundary: dict[str, object]) -> str:
+        unsigned = dict(boundary)
+        unsigned.pop("boundary_digest", None)
+        return "hmac-sha256:" + hmac.new(key, canonical_json(unsigned), hashlib.sha256).hexdigest()
+
+    @staticmethod
+    def _write_all(descriptor: int, payload: bytes) -> None:
+        offset = 0
+        while offset < len(payload):
+            written = os.write(descriptor, payload[offset:])
+            if written <= 0:
+                raise OSError("short audit write")
+            offset += written
+
+
+def provision_audit_boundary(
+    audit_directory: str | Path,
+    *,
+    audit_key: bytes,
+    boundary_path: str | Path,
+) -> None:
+    """Provision an empty journal's authenticated external tail boundary.
+
+    Hosts perform this once as protected local setup.  It is intentionally not
+    called by an applier constructor or an apply request: absence of the
+    boundary must deny writeback rather than make an erased audit history look
+    like a newly initialized journal.
+    """
+
+    _AuditJournal.provision_boundary(Path(audit_directory), key=audit_key, boundary_path=Path(boundary_path))
+
+
+class AtomicSingleFileApplier:
+    """Server-owned v0.8 proposal state with atomic ``create_absent`` only.
+
+    The constructor deliberately requires both a trusted owner authority and a
+    server-owned audit key.  There is no general write API, client-provided
+    proposal identifier, client-provided fingerprint, or client-provided owner
+    session binding.
+    """
+
+    def __init__(
+        self,
+        vault_root: str | Path,
+        *,
+        allowed_roots: tuple[str, ...],
+        audit_directory: str | Path,
+        audit_boundary_path: str | Path,
+        owner_authority: TrustedOwnerAuthority,
+        audit_key: bytes,
+        server_instance_id: str | None = None,
+        policy_identity: str = POLICY_VERSION,
+        approval_lifetime_seconds: float = MAX_APPROVAL_LIFETIME_SECONDS,
+        wall_clock: Callable[[], datetime] | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._require_platform_primitives()
+        if not 0 < approval_lifetime_seconds <= MAX_APPROVAL_LIFETIME_SECONDS:
+            raise ApplyRefused("invalid_approval_lifetime")
+        if not hasattr(owner_authority, "current_owner_session_binding") or not hasattr(
+            owner_authority, "verify_owner_confirmation"
+        ):
+            raise ApplyRefused("owner_authority_required")
+        requested_root = Path(vault_root)
+        try:
+            root_info = os.lstat(requested_root)
+            root = requested_root.resolve(strict=True)
+        except OSError as exc:
+            raise ApplyRefused("invalid_vault_root") from exc
+        if stat.S_ISLNK(root_info.st_mode) or not stat.S_ISDIR(root_info.st_mode):
+            raise ApplyRefused("invalid_vault_root")
+        try:
+            self._root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError as exc:
+            raise ApplyRefused("invalid_vault_root") from exc
+        self.root = root
+        self._root_identity = self._fd_identity(self._root_fd)
+        if not root.name:
+            os.close(self._root_fd)
+            self._root_fd = -1
+            raise ApplyRefused("invalid_vault_root")
+        self._root_parent = root.parent
+        try:
+            self._root_parent_fd = os.open(
+                self._root_parent,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+        except OSError as exc:
+            os.close(self._root_fd)
+            self._root_fd = -1
+            raise ApplyRefused("invalid_vault_root") from exc
+        try:
+            self._root_parent_identity = self._fd_identity(self._root_parent_fd)
+            self._assert_namespace_parent_protected(self._root_parent_fd)
+            root_entry = os.stat(root.name, dir_fd=self._root_parent_fd, follow_symlinks=False)
+            if (
+                stat.S_ISLNK(root_entry.st_mode)
+                or not stat.S_ISDIR(root_entry.st_mode)
+                or (root_entry.st_dev, root_entry.st_ino) != self._root_identity
+            ):
+                raise ApplyRefused("invalid_vault_root")
+        except (ApplyRefused, OSError) as exc:
+            os.close(self._root_parent_fd)
+            self._root_parent_fd = -1
+            os.close(self._root_fd)
+            self._root_fd = -1
+            if isinstance(exc, ApplyRefused):
+                raise
+            raise ApplyRefused("invalid_vault_root") from exc
+        self._owner_authority = owner_authority
+        self._approval_key = secrets.token_bytes(32)
+        self._approval_lifetime_seconds = approval_lifetime_seconds
+        self._wall_clock = wall_clock or (lambda: datetime.now(timezone.utc))
+        self._monotonic = monotonic
+        self._server_instance_id = server_instance_id or self._new_opaque_id("server")
+        self._validate_opaque(self._server_instance_id, "server_instance_id")
+        if not isinstance(policy_identity, str) or not policy_identity or len(policy_identity) > 200 or "\x00" in policy_identity:
+            raise ApplyRefused("invalid_policy_identity")
+        self._policy_identity = policy_identity
+        self._allowed_roots = self._prepare_allowed_roots(allowed_roots)
+        self.audit = _AuditJournal(
+            Path(audit_directory),
+            key=audit_key,
+            boundary_path=Path(audit_boundary_path),
+        )
+        self._prepared: dict[str, _PreparedProposal] = {}
+        self._prepared_lock = threading.Lock()
+        self._closed = False
+
+    def close(self) -> None:
+        with self._prepared_lock:
+            self._closed = True
+            for record in self._prepared.values():
+                self._invalidate_record(record, "server_stopped")
+        self.audit.close()
+        for descriptor_name in ("_root_parent_fd", "_root_fd"):
+            descriptor = getattr(self, descriptor_name, -1)
+            if descriptor >= 0:
+                os.close(descriptor)
+                setattr(self, descriptor_name, -1)
+
+    def propose(
+        self,
+        *,
+        operation: str,
+        path: str,
+        proposed_bytes: bytes,
+        request_origin: str = "local-request",
+    ) -> dict[str, Any]:
+        """Create one immutable public proposal from untrusted candidate input.
+
+        The server generates all identity, policy, owner-session, checksum,
+        preview, token-binding, expiry, and fingerprint values.  ``replace``
+        is intentionally refused before reading or writing a source file.
+        """
+
+        if operation == "replace_existing":
+            raise ApplyRefused("replace_existing_unsupported")
+        if operation != "create_absent":
+            raise ApplyRefused("unsupported_operation")
+        if not isinstance(proposed_bytes, bytes):
+            raise ApplyRefused("malformed_proposal")
+        self._ensure_open()
+        try:
+            canonical_path = canonical_relative_markdown_path(path)
+            _, selected_root_id = self._select_allowed_root(canonical_path)
+            self._validate_request_origin(request_origin)
+            self._assert_root_identity()
+            self._assert_absent(canonical_path)
+            owner_session_binding = self._owner_authority.current_owner_session_binding()
+            self._validate_opaque(owner_session_binding, "owner_session_binding")
+        except (ProposalValidationError, ApplyRefused) as exc:
+            raise ApplyRefused(str(exc)) from exc
+        except Exception as exc:
+            raise ApplyRefused("owner_session_unavailable") from exc
+
+        issued = self._utc_now()
+        issued_at = self._format_timestamp(issued)
+        expires_at = self._format_timestamp(issued + timedelta(seconds=self._approval_lifetime_seconds))
+        proposal_id = self._new_opaque_id("proposal")
+        raw_token = secrets.token_urlsafe(48)
+        rendered_diff = render_unified_byte_diff_v1(
+            path=canonical_path, base_bytes=b"", proposed_bytes=proposed_bytes, absent=True
+        )
+        public: dict[str, Any] = {
+            "schema_version": PROPOSAL_SCHEMA_VERSION,
+            "proposal_id": proposal_id,
+            "proposal_fingerprint": "",
+            "operation": "create_absent",
+            "scope": {
+                "changed_path_count": 1,
+                "changed_paths": [canonical_path],
+                "bulk": False,
+                "destructive": False,
+            },
+            "target": {
+                "vault_root_id": self._vault_root_id(),
+                "allowed_root_id": selected_root_id,
+                "path": canonical_path,
+                "kind": "absent_final_component",
+                "file_identity": None,
+            },
+            "base": {"existence": "absent", "checksum": None},
+            "change": {
+                "representation": "replacement-bytes/base64-v1",
+                "proposed_bytes_base64": base64.b64encode(proposed_bytes).decode("ascii"),
+                "proposed_byte_length": len(proposed_bytes),
+                "proposed_checksum": sha256_checksum(proposed_bytes),
+                "review": {
+                    "format": "unified-byte-diff-v1",
+                    "rendered_diff": rendered_diff,
+                    "rendered_diff_checksum": sha256_checksum(rendered_diff.encode("utf-8")),
+                },
+            },
+            "metadata": {
+                "policy_version": POLICY_VERSION,
+                "server_instance_id": self._server_instance_id,
+                "risk_class": "single_file_non_destructive",
+                "issued_at": issued_at,
+                "expires_at": expires_at,
+                "request_origin": request_origin,
+            },
+            "approval": {
+                "mode": "local-owner-one-time",
+                "token_binding": self._public_token_binding(raw_token, proposal_id, owner_session_binding),
+                "approval_session_binding": owner_session_binding,
+                "state": "proposed",
+            },
+            "audit": {
+                "schema_version": AUDIT_SCHEMA_VERSION,
+                "proposal_id_redaction": self.audit.redact_proposal_id(proposal_id),
+                "journal_scope": "derived-local-only",
+                "planned_changed_path_count": 1,
+            },
+        }
+        public["proposal_fingerprint"] = compute_proposal_fingerprint(public)
+        try:
+            validated = validate_proposal(
+                public,
+                base_bytes=b"",
+                expected_vault_root_id=self._vault_root_id(),
+                expected_allowed_root_id=selected_root_id,
+                expected_server_instance_id=self._server_instance_id,
+            )
+        except ProposalValidationError as exc:  # A server construction bug must fail closed.
+            raise ApplyRefused("internal_integrity_failure") from exc
+        record = _PreparedProposal(
+            public=validated.record,
+            base_bytes=b"",
+            proposed_bytes=validated.proposed_bytes,
+            token_digest=self._token_digest(raw_token, validated.record),
+            raw_token=raw_token,
+            monotonic_deadline=self._monotonic() + self._approval_lifetime_seconds,
+            lifecycle_binding=self._lifecycle_binding(owner_session_binding),
+        )
+        with self._prepared_lock:
+            if proposal_id in self._prepared:  # Cryptographic collision is refused, never reused.
+                raise ApplyRefused("duplicate_proposal")
+            self._prepared[proposal_id] = record
+        return _json_clone(validated.record)
+
+    def approve_from_trusted_owner(self, confirmation: OwnerConfirmation) -> str:
+        """Return the raw one-time token only to the trusted owner channel."""
+
+        if not isinstance(confirmation, OwnerConfirmation) or not isinstance(confirmation.proposal_id, str):
+            raise ApplyRefused("owner_confirmation_required")
+        with self._prepared_lock:
+            self._ensure_open()
+            record = self._prepared.get(confirmation.proposal_id)
+            if record is None or record.state != "proposed" or self._expired(record):
+                raise ApplyRefused("not_approved")
+            try:
+                self._validate_private_record(record)
+                self._assert_record_lifecycle(record)
+                # Capability issuance must not ask the trusted owner to approve
+                # a proposal while the anchored audit history is unavailable.
+                self.audit.records()
+            except ApplyRefused as exc:
+                self._invalidate_record(record, "invalidated")
+                raise ApplyRefused("not_approved") from exc
+            public = record.public
+            try:
+                verified = self._owner_authority.verify_owner_confirmation(
+                    confirmation=confirmation,
+                    proposal_id=public["proposal_id"],
+                    proposal_fingerprint=public["proposal_fingerprint"],
+                    server_instance_id=self._server_instance_id,
+                    owner_session_binding=public["approval"]["approval_session_binding"],
+                )
+            except Exception as exc:
+                raise ApplyRefused("owner_confirmation_required") from exc
+            if verified is not True:
+                raise ApplyRefused("owner_confirmation_required")
+            if record.raw_token is None:
+                raise ApplyRefused("replayed")
+            token = record.raw_token
+            record.raw_token = None
+            record.state = "approved"
+            record.approval_at = self._timestamp_now()
+            return token
+
+    def apply(self, *, proposal_id: str, token: str) -> ApplyResult:
+        """Consume an owner-issued token and atomically publish only an absent file."""
+
+        if self._closed:
+            return ApplyResult(ApplyOutcome.REFUSED, proposal_id)
+        record = self._consume_for_apply(proposal_id, token)
+        if record is None:
+            return ApplyResult(ApplyOutcome.REFUSED, proposal_id)
+
+        try:
+            self._assert_root_identity()
+            self._assert_absent(record.public["target"]["path"])
+        except ApplyRefused as exc:
+            outcome = ApplyOutcome.CONFLICT if str(exc) == "target_already_exists" else ApplyOutcome.REFUSED
+            if not self._append_audit(record, outcome.value, observed_after=None, error_category=str(exc)):
+                outcome = ApplyOutcome.FAILED
+            self._terminal(record, outcome.value)
+            return ApplyResult(outcome, proposal_id)
+
+        # A durable pending record is authorization precondition, not best effort.
+        if not self._append_audit(record, "pending", observed_after=None, error_category=None):
+            self._terminal(record, "refused")
+            return ApplyResult(ApplyOutcome.REFUSED, proposal_id)
+
+        mutation_started = False
+        try:
+            self._publish_absent(record.public["target"]["path"], record.proposed_bytes)
+            mutation_started = True
+            final = self._read_regular(record.public["target"]["path"])
+            if sha256_checksum(final) != record.public["change"]["proposed_checksum"]:
+                self._terminal(record, "indeterminate")
+                self._append_audit(record, "indeterminate", observed_after=final, error_category="after_checksum_mismatch")
+                return ApplyResult(ApplyOutcome.INDETERMINATE, proposal_id)
+            if not self._append_audit(record, "applied", observed_after=final, error_category=None):
+                self._terminal(record, "indeterminate")
+                return ApplyResult(ApplyOutcome.INDETERMINATE, proposal_id)
+            self._terminal(record, "applied")
+            return ApplyResult(ApplyOutcome.APPLIED, proposal_id)
+        except _CreateConflict:
+            if not self._append_audit(record, "conflict", observed_after=None, error_category="target_already_exists"):
+                self._terminal(record, "failed")
+                return ApplyResult(ApplyOutcome.FAILED, proposal_id)
+            self._terminal(record, "conflict")
+            return ApplyResult(ApplyOutcome.CONFLICT, proposal_id)
+        except _PublishedFailure:
+            mutation_started = True
+            final = self._read_after_failure(record.public["target"]["path"])
+            self._append_audit(record, "indeterminate", observed_after=final, error_category="publish_sync_failed")
+            self._terminal(record, "indeterminate")
+            return ApplyResult(ApplyOutcome.INDETERMINATE, proposal_id)
+        except ApplyRefused as exc:
+            final = self._read_after_failure(record.public["target"]["path"])
+            outcome = "indeterminate" if mutation_started else "failed"
+            self._append_audit(record, outcome, observed_after=final, error_category=str(exc))
+            self._terminal(record, outcome)
+            return ApplyResult(ApplyOutcome.INDETERMINATE if mutation_started else ApplyOutcome.REFUSED, proposal_id)
+        except Exception:
+            # KeyboardInterrupt and SystemExit intentionally propagate, leaving the durable
+            # pending record for read-only crash recovery instead of guessing an outcome.
+            final = self._read_after_failure(record.public["target"]["path"])
+            outcome = "indeterminate" if mutation_started else "failed"
+            self._append_audit(record, outcome, observed_after=final, error_category="apply_failed")
+            self._terminal(record, outcome)
+            return ApplyResult(ApplyOutcome.INDETERMINATE if mutation_started else ApplyOutcome.FAILED, proposal_id)
+
+    def recover_incomplete_audit(self) -> list[dict[str, object]]:
+        """Read-only crash recovery for pending audit records."""
+
+        self._ensure_open()
+        return self.audit.recover_pending(self._observe_pending)
+
+    def cancel(self, proposal_id: str) -> bool:
+        """Invalidate one unconsumed proposal through the trusted host path."""
+
+        if not isinstance(proposal_id, str):
+            return False
+        with self._prepared_lock:
+            record = self._prepared.get(proposal_id)
+            if record is None or record.state not in {"proposed", "approved"}:
+                return False
+            self._invalidate_record(record, "cancelled")
+            return True
+
+    def end_owner_session(self, owner_session_binding: str) -> int:
+        """Invalidate all outstanding proposals bound to an ended owner session."""
+
+        self._validate_opaque(owner_session_binding, "owner_session_binding")
+        invalidated = 0
+        with self._prepared_lock:
+            for record in self._prepared.values():
+                if (
+                    record.state in {"proposed", "approved"}
+                    and record.public["approval"]["approval_session_binding"] == owner_session_binding
+                ):
+                    self._invalidate_record(record, "session_ended")
+                    invalidated += 1
+        return invalidated
+
+    def _consume_for_apply(self, proposal_id: str, token: str) -> _PreparedProposal | None:
+        if not isinstance(proposal_id, str) or not isinstance(token, str):
+            return None
+        with self._prepared_lock:
+            if self._closed:
+                return None
+            record = self._prepared.get(proposal_id)
+            if record is None or record.state != "approved" or self._expired(record):
+                return None
+            try:
+                self._validate_private_record(record)
+                self._assert_record_lifecycle(record)
+            except ApplyRefused:
+                self._invalidate_record(record, "invalidated")
+                return None
+            if not hmac.compare_digest(record.token_digest, self._token_digest(token, record.public)):
+                return None
+            # The state transition is complete before any source file is opened for writing.
+            record.state = "consuming"
+            return record
+
+    def _expired(self, record: _PreparedProposal) -> bool:
+        try:
+            expires_at = datetime.fromisoformat(record.public["metadata"]["expires_at"].replace("Z", "+00:00"))
+            wall_expired = self._utc_now() >= expires_at
+        except (AttributeError, KeyError, TypeError, ValueError, ApplyRefused):
+            wall_expired = True
+        if wall_expired or self._monotonic() >= record.monotonic_deadline:
+            record.state = "expired"
+            return True
+        return False
+
+    def _terminal(self, record: _PreparedProposal, state: str) -> None:
+        with self._prepared_lock:
+            record.state = state
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise ApplyRefused("server_stopped")
+
+    @staticmethod
+    def _invalidate_record(record: _PreparedProposal, state: str) -> None:
+        record.raw_token = None
+        record.state = state
+
+    def _validate_private_record(self, record: _PreparedProposal) -> None:
+        public = record.public
+        try:
+            validated = validate_proposal(
+                public,
+                base_bytes=record.base_bytes,
+                expected_vault_root_id=self._vault_root_id(),
+                expected_allowed_root_id=public["target"]["allowed_root_id"],
+                expected_server_instance_id=self._server_instance_id,
+            )
+        except (KeyError, ProposalValidationError) as exc:
+            raise ApplyRefused("tampered") from exc
+        if record.proposed_bytes != validated.proposed_bytes:
+            raise ApplyRefused("tampered")
+
+    def _assert_record_lifecycle(self, record: _PreparedProposal) -> None:
+        """Require current server, root, policy, and owner-session context."""
+
+        public = record.public
+        self._assert_root_identity()
+        _, selected_root_id = self._select_allowed_root(public["target"]["path"])
+        if (
+            selected_root_id != public["target"]["allowed_root_id"]
+            or public["target"]["vault_root_id"] != self._vault_root_id()
+            or public["metadata"]["server_instance_id"] != self._server_instance_id
+            or public["metadata"]["policy_version"] != POLICY_VERSION
+        ):
+            raise ApplyRefused("lifecycle_invalidated")
+        try:
+            current_session = self._owner_authority.current_owner_session_binding()
+            self._validate_opaque(current_session, "owner_session_binding")
+        except Exception as exc:
+            raise ApplyRefused("owner_session_unavailable") from exc
+        if current_session != public["approval"]["approval_session_binding"]:
+            raise ApplyRefused("owner_session_ended")
+        if not hmac.compare_digest(record.lifecycle_binding, self._lifecycle_binding(current_session)):
+            raise ApplyRefused("lifecycle_invalidated")
+
+    def _lifecycle_binding(self, owner_session_binding: str) -> bytes:
+        material = {
+            "server_instance_id": self._server_instance_id,
+            "policy_identity": self._policy_identity,
+            "vault_root_id": self._vault_root_id(),
+            "allowed_roots": [item[0] for item in self._allowed_roots],
+            "owner_session_binding": owner_session_binding,
+        }
+        return hmac.new(self._approval_key, canonical_json(material), hashlib.sha256).digest()
+
+    def _append_audit(
+        self,
+        record: _PreparedProposal,
+        outcome: str,
+        *,
+        observed_after: bytes | None,
+        error_category: str | None,
+    ) -> bool:
+        public = record.public
+        try:
+            self.audit.append(
+                {
+                    "kind": "apply",
+                    "schema_version": AUDIT_SCHEMA_VERSION,
+                    "policy_version": POLICY_VERSION,
+                    "journal_scope": "derived-local-only",
+                    "proposal_fingerprint": public["proposal_fingerprint"],
+                    "proposal_id_redaction": public["audit"]["proposal_id_redaction"],
+                    "operation": public["operation"],
+                    "path": public["target"]["path"],
+                    "vault_root_id": public["target"]["vault_root_id"],
+                    "allowed_root_id": public["target"]["allowed_root_id"],
+                    "issued_at": public["metadata"]["issued_at"],
+                    "expires_at": public["metadata"]["expires_at"],
+                    "approval_at": record.approval_at,
+                    "outcome": outcome,
+                    "base_checksum": public["base"]["checksum"],
+                    "expected_after_checksum": public["change"]["proposed_checksum"],
+                    "observed_after_checksum": sha256_checksum(observed_after) if observed_after is not None else None,
+                    "changed_path_count": 1,
+                    "server_instance_id": self._server_instance_id,
+                    "error_category": error_category,
+                }
+            )
+            return True
+        except (ApplyRefused, OSError, ProposalValidationError):
+            return False
+
+    def _observe_pending(self, pending: dict[str, object]) -> tuple[str, str | None]:
+        try:
+            path = pending["path"]
+            expected = pending["expected_after_checksum"]
+            if not isinstance(path, str) or not isinstance(expected, str):
+                return ("indeterminate", None)
+            observed = self._read_regular(path)
+        except (ApplyRefused, OSError):
+            return ("indeterminate", None)
+        observed_checksum = sha256_checksum(observed)
+        return ("applied_verified" if hmac.compare_digest(observed_checksum, expected) else "indeterminate", observed_checksum)
+
+    def _publish_absent(self, relative: str, data: bytes) -> None:
+        """Publish verified bytes from an anonymous descriptor if absent.
+
+        A name-based temporary file is not safe here: an attacker who can
+        replace that name with a hard link between verification and ``link``
+        can make unreviewed bytes visible at the final path.  Linux
+        ``O_TMPFILE`` keeps the staged inode unnamed, and the procfs fd entry
+        used below resolves to the still-open descriptor rather than a
+        replaceable directory entry.  There is intentionally no unsafe
+        name-based fallback on platforms or filesystems without this
+        descriptor-bound primitive.
+        """
+
+        if not self._descriptor_bound_atomic_create_supported():
+            raise ApplyRefused("atomic_create_unsupported")
+
+        parent_fd, name = self._open_parent(relative)
+        descriptor = -1
+        try:
+            # Probe the directory durability primitive before the final name
+            # can become visible.  Filesystems that cannot sync this directory
+            # are not a supported atomic-publication target, so refuse before
+            # creating an anonymous staging inode or publishing any bytes.
+            try:
+                os.fsync(parent_fd)
+            except OSError as exc:
+                raise ApplyRefused("atomic_create_unsupported") from exc
+            try:
+                descriptor = os.open(
+                    ".",
+                    os.O_WRONLY | os.O_TMPFILE,
+                    0o600,
+                    dir_fd=parent_fd,
+                )
+                self._verify_unlinked_temporary_fd(descriptor)
+                self._write_and_sync(descriptor, data)
+                self._verify_unlinked_temporary_fd(descriptor)
+            except OSError as exc:
+                if exc.errno in {errno.EINVAL, errno.EISDIR, errno.ENOSYS, errno.EOPNOTSUPP, errno.EPERM}:
+                    raise ApplyRefused("atomic_create_unsupported") from exc
+                raise
+            try:
+                os.link(
+                    f"/proc/self/fd/{descriptor}",
+                    name,
+                    dst_dir_fd=parent_fd,
+                    follow_symlinks=True,
+                )
+            except FileExistsError as exc:
+                raise _CreateConflict from exc
+            except (NotImplementedError, TypeError) as exc:
+                raise ApplyRefused("atomic_create_unsupported") from exc
+            except OSError as exc:
+                if exc.errno in {errno.EINVAL, errno.EPERM, errno.EXDEV, errno.EOPNOTSUPP, errno.ENOSYS}:
+                    raise ApplyRefused("atomic_create_unsupported") from exc
+                raise
+            try:
+                os.fsync(parent_fd)
+            except OSError as exc:
+                raise _PublishedFailure(str(exc)) from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            os.close(parent_fd)
+
+    def _read_regular(self, relative: str) -> bytes:
+        parent_fd, name = self._open_parent(relative)
+        try:
+            try:
+                info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            except FileNotFoundError as exc:
+                raise ApplyRefused("target_missing") from exc
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ApplyRefused("unsafe_target")
+            descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent_fd)
+            try:
+                opened = os.fstat(descriptor)
+                if (
+                    (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino)
+                    or not stat.S_ISREG(opened.st_mode)
+                    or opened.st_nlink != 1
+                ):
+                    raise ApplyRefused("target_changed")
+                chunks: list[bytes] = []
+                while block := os.read(descriptor, 64 * 1024):
+                    chunks.append(block)
+                return b"".join(chunks)
+            finally:
+                os.close(descriptor)
+        finally:
+            os.close(parent_fd)
+
+    def _read_after_failure(self, path: str) -> bytes | None:
+        try:
+            return self._read_regular(path)
+        except (ApplyRefused, OSError):
+            return None
+
+    def _assert_absent(self, relative: str) -> None:
+        parent_fd, name = self._open_parent(relative)
+        try:
+            try:
+                os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return
+            raise ApplyRefused("target_already_exists")
+        finally:
+            os.close(parent_fd)
+
+    def _open_parent(self, relative: str) -> tuple[int, str]:
+        canonical = canonical_relative_markdown_path(relative)
+        self._select_allowed_root(canonical)
+        self._assert_root_identity()
+        parts = canonical.split("/")
+        current = os.dup(self._root_fd)
+        try:
+            for component in parts[:-1]:
+                self._assert_namespace_parent_protected(current)
+                child = self._open_exact_directory(current, component)
+                os.close(current)
+                current = child
+            return current, parts[-1]
+        except (OSError, ProposalValidationError, ApplyRefused) as exc:
+            os.close(current)
+            if isinstance(exc, ApplyRefused):
+                raise
+            raise ApplyRefused("unsafe_path") from exc
+
+    def _prepare_allowed_roots(self, values: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+        if not values:
+            raise ApplyRefused("no_allowed_roots")
+        prepared: list[tuple[str, str]] = []
+        for value in values:
+            try:
+                if not isinstance(value, str) or not value:
+                    raise ProposalValidationError("invalid_allowed_root")
+                if value.endswith(".md"):
+                    raise ProposalValidationError("invalid_allowed_root")
+                candidate = value
+                if "\\" in candidate or candidate.startswith("/") or ":" in candidate or "\x00" in candidate:
+                    raise ProposalValidationError("invalid_allowed_root")
+                components = candidate.split("/")
+                if any(not part or part in {".", ".."} or part.endswith((".", " ")) for part in components):
+                    raise ProposalValidationError("invalid_allowed_root")
+                self._assert_no_denied_path_components(components)
+                canonical = "/".join(components)
+                self._assert_exact_existing_directory(canonical)
+            except (ProposalValidationError, ApplyRefused) as exc:
+                raise ApplyRefused("invalid_allowed_root") from exc
+            identity = "allowed-" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
+            prepared.append((canonical, identity))
+        if len({item[0] for item in prepared}) != len(prepared):
+            raise ApplyRefused("invalid_allowed_root")
+        return tuple(prepared)
+
+    def _assert_exact_existing_directory(self, relative: str) -> None:
+        """Require configured prefixes to use the filesystem entry spelling.
+
+        Component enumeration is intentional: opening a differently cased
+        component can silently select the same entry on a case-insensitive
+        filesystem.  Exact entry matching therefore works on both case modes
+        without trusting Python's platform-dependent ``normcase`` heuristic.
+        """
+
+        current = os.dup(self._root_fd)
+        try:
+            for component in relative.split("/"):
+                self._assert_namespace_parent_protected(current)
+                child = self._open_exact_directory(current, component)
+                os.close(current)
+                current = child
+        except OSError as exc:
+            raise ApplyRefused("invalid_allowed_root") from exc
+        finally:
+            os.close(current)
+
+    @staticmethod
+    def _assert_no_denied_path_components(components: tuple[str, ...] | list[str]) -> None:
+        # The shared safety policy is evaluated for *every* component, not
+        # merely the configured root or its first segment.  This prevents a
+        # nested operational tree from becoming an allowed note namespace.
+        if any(is_writeback_denied_directory_component(component) for component in components):
+            raise ApplyRefused("policy_denied")
+
+    @staticmethod
+    def _assert_namespace_parent_protected(parent_fd: int) -> None:
+        """Refuse a parent directory from which a child could be renamed.
+
+        POSIX has no portable no-follow resolution primitive that keeps a
+        directory descriptor inside an ancestor after that directory is
+        renamed.  A retained descriptor is therefore safe for the subsequent
+        create/link/unlink sequence only when the containing namespace cannot
+        rename or replace that child.  The standard POSIX permission primitive
+        for that is a directory with no write bit for owner, group, or other.
+
+        We require that protection for every directory *containing* a path
+        component, including the vault root.  The final target directory may
+        remain writable so the approved create can happen there, but it cannot
+        be moved once its parent is protected.  ACL, permission, or filesystem
+        configurations that cannot establish this condition are deliberately
+        unsupported and leave writeback read-only.
+        """
+
+        try:
+            info = os.fstat(parent_fd)
+        except OSError as exc:
+            raise ApplyRefused("unsafe_namespace") from exc
+        if (
+            not stat.S_ISDIR(info.st_mode)
+            or info.st_nlink < 2
+            or info.st_mode & 0o222
+        ):
+            raise ApplyRefused("unsafe_namespace")
+        AtomicSingleFileApplier._assert_no_extended_acl(parent_fd)
+
+    @staticmethod
+    def _assert_no_extended_acl(descriptor: int) -> None:
+        """Refuse namespace parents with permission state outside mode bits.
+
+        A mode-only check is insufficient when an ACL can grant a caller
+        delete-child permission despite ``0o555``-style bits.  We query the
+        platform ACL API through the already-open descriptor, reject any
+        extended ACL, and treat unavailable or unreadable ACL metadata as an
+        unsupported writeback configuration.  The call itself is read-only.
+        """
+
+        try:
+            if sys.platform == "darwin":
+                library = ctypes.CDLL(None, use_errno=True)
+                get_acl = library.acl_get_fd_np
+                get_acl.argtypes = (ctypes.c_int, ctypes.c_int)
+                get_acl.restype = ctypes.c_void_p
+                free_acl = library.acl_free
+                free_acl.argtypes = (ctypes.c_void_p,)
+                free_acl.restype = ctypes.c_int
+                ctypes.set_errno(0)
+                acl = get_acl(descriptor, 0x00000100)  # ACL_TYPE_EXTENDED
+                if acl:
+                    free_acl(acl)
+                    raise ApplyRefused("unsafe_namespace")
+                if ctypes.get_errno() != errno.ENOENT:  # No ACL is ENOENT on Darwin.
+                    raise ApplyRefused("unsafe_namespace")
+                return
+
+            if sys.platform.startswith("linux"):
+                library = ctypes.CDLL("libacl.so.1", use_errno=True)
+                get_acl = library.acl_get_fd
+                get_acl.argtypes = (ctypes.c_int,)
+                get_acl.restype = ctypes.c_void_p
+                equivalent_mode = library.acl_equiv_mode
+                equivalent_mode.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint))
+                equivalent_mode.restype = ctypes.c_int
+                free_acl = library.acl_free
+                free_acl.argtypes = (ctypes.c_void_p,)
+                free_acl.restype = ctypes.c_int
+                acl = get_acl(descriptor)
+                if not acl:
+                    raise ApplyRefused("unsafe_namespace")
+                try:
+                    mode = ctypes.c_uint()
+                    if equivalent_mode(acl, ctypes.byref(mode)) != 0:
+                        raise ApplyRefused("unsafe_namespace")
+                finally:
+                    free_acl(acl)
+                return
+        except (AttributeError, OSError):
+            raise ApplyRefused("unsafe_namespace") from None
+        raise ApplyRefused("unsafe_namespace")
+
+    @staticmethod
+    def _open_exact_directory(parent_fd: int, component: str) -> int:
+        try:
+            if component not in os.listdir(parent_fd):
+                raise ApplyRefused("unsafe_path")
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+        except OSError as exc:
+            raise ApplyRefused("unsafe_path") from exc
+        try:
+            child_info = os.fstat(child)
+            if not stat.S_ISDIR(child_info.st_mode) or child_info.st_nlink < 2:
+                raise ApplyRefused("unsafe_path")
+            return child
+        except Exception:
+            os.close(child)
+            raise
+
+    def _select_allowed_root(self, path: str) -> tuple[str, str]:
+        parts = tuple(path.split("/"))
+        self._assert_no_denied_path_components(parts)
+        matches = [
+            item
+            for item in self._allowed_roots
+            if parts[: len(item[0].split("/"))] == tuple(item[0].split("/"))
+        ]
+        if not matches:
+            raise ApplyRefused("policy_denied")
+        return max(matches, key=lambda item: len(item[0]))
+
+    def _assert_root_identity(self) -> None:
+        try:
+            info = os.lstat(self.root)
+            parent_info = os.fstat(self._root_parent_fd)
+            root_entry = os.stat(self.root.name, dir_fd=self._root_parent_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise ApplyRefused("invalid_vault_root") from exc
+        self._assert_namespace_parent_protected(self._root_parent_fd)
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or not stat.S_ISDIR(info.st_mode)
+            or (info.st_dev, info.st_ino) != self._root_identity
+            or self._fd_identity(self._root_fd) != self._root_identity
+            or parent_info.st_mode & 0o222
+            or (parent_info.st_dev, parent_info.st_ino) != self._root_parent_identity
+            or stat.S_ISLNK(root_entry.st_mode)
+            or not stat.S_ISDIR(root_entry.st_mode)
+            or (root_entry.st_dev, root_entry.st_ino) != self._root_identity
+        ):
+            raise ApplyRefused("invalid_vault_root")
+
+    def _vault_root_id(self) -> str:
+        dev, ino = self._root_identity
+        material = f"{dev}:{ino}".encode("ascii")
+        return "vault-" + hashlib.sha256(material).hexdigest()[:32]
+
+    def _token_digest(self, token: str, public: dict[str, Any]) -> bytes:
+        """Private token verifier bound to the final immutable fingerprint."""
+
+        binding = "\0".join(
+            (
+                token,
+                public["proposal_id"],
+                public["proposal_fingerprint"],
+                self._server_instance_id,
+                public["approval"]["approval_session_binding"],
+            )
+        ).encode("utf-8")
+        return hmac.new(self._approval_key, binding, hashlib.sha256).digest()
+
+    def _public_token_binding(self, token: str, proposal_id: str, owner_session_binding: str) -> str:
+        """Commit to the token's server, proposal, and session context.
+
+        The final fingerprint cannot be placed inside this public commitment
+        without a circular hash construction: the fingerprint covers the
+        token binding itself.  The private token digest therefore binds the
+        same token to that final fingerprint before approval or apply.
+        """
+
+        binding = "\0".join((token, proposal_id, self._server_instance_id, owner_session_binding)).encode("utf-8")
+        return "sha256:" + hmac.new(self._approval_key, binding, hashlib.sha256).hexdigest()
+
+    def _timestamp_now(self) -> str:
+        return self._format_timestamp(self._utc_now())
+
+    def _utc_now(self) -> datetime:
+        value = self._wall_clock()
+        if not isinstance(value, datetime):
+            raise ApplyRefused("clock_unavailable")
+        if value.tzinfo is None:
+            raise ApplyRefused("clock_unavailable")
+        return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _format_timestamp(value: datetime) -> str:
+        return value.isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+    @staticmethod
+    def _validate_opaque(value: object, name: str) -> None:
+        if not isinstance(value, str) or not value or any(character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-" for character in value):
+            raise ApplyRefused(f"invalid_{name}")
+
+    @staticmethod
+    def _validate_request_origin(value: object) -> None:
+        if not isinstance(value, str) or not value or len(value) > 128 or any(
+            character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-" for character in value
+        ):
+            raise ApplyRefused("malformed_request_origin")
+
+    @staticmethod
+    def _new_opaque_id(prefix: str) -> str:
+        return f"{prefix}-{secrets.token_urlsafe(32)}"
+
+    @staticmethod
+    def _fd_identity(descriptor: int) -> tuple[int, int]:
+        info = os.fstat(descriptor)
+        return (info.st_dev, info.st_ino)
+
+    @staticmethod
+    def _verify_regular_fd(descriptor: int) -> None:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise ApplyRefused("unsafe_target")
+
+    @staticmethod
+    def _verify_unlinked_temporary_fd(descriptor: int) -> None:
+        """Require the anonymous staging inode used for descriptor publication."""
+
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 0:
+            raise ApplyRefused("unsafe_target")
+
+    @staticmethod
+    def _write_and_sync(descriptor: int, data: bytes) -> None:
+        offset = 0
+        while offset < len(data):
+            written = os.write(descriptor, data[offset:])
+            if written <= 0:
+                raise OSError("short_source_write")
+            offset += written
+        os.fsync(descriptor)
+
+    @staticmethod
+    def _require_platform_primitives() -> None:
+        required = ("O_NOFOLLOW", "O_DIRECTORY")
+        if (
+            os.name != "posix"
+            or fcntl is None
+            or any(not hasattr(os, name) for name in required)
+            or os.open not in os.supports_dir_fd
+            or os.stat not in os.supports_dir_fd
+            or os.link not in os.supports_dir_fd
+        ):
+            raise ApplyRefused("unsupported_platform")
+
+    @staticmethod
+    def _descriptor_bound_atomic_create_supported() -> bool:
+        """Return whether this process exposes the safe publication primitive.
+
+        ``/proc/self/fd/<fd>`` is a Linux fd-backed magic link.  With
+        ``follow_symlinks=True`` it lets ``linkat`` publish the anonymous
+        ``O_TMPFILE`` inode referenced by the verified descriptor.  Other
+        platforms may offer hard links, but not this descriptor-bound,
+        create-if-absent primitive; they must fail closed instead.
+        """
+
+        return (
+            sys.platform.startswith("linux")
+            and hasattr(os, "O_TMPFILE")
+            and os.open in os.supports_dir_fd
+            and _NATIVE_LINK_SUPPORTS_DIR_FD
+            and _NATIVE_LINK_SUPPORTS_FOLLOW_SYMLINKS
+            and os.path.isdir("/proc/self/fd")
+        )
+
+
+def _json_clone(value: dict[str, Any]) -> dict[str, Any]:
+    return json.loads(canonical_json(value).decode("utf-8"))

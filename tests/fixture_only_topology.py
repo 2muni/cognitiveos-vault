@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 import stat
-from typing import Callable, Mapping
+from typing import Callable, Iterable, Mapping
 
 from cognitiveos.approval import OwnerConfirmation
 
@@ -28,6 +28,8 @@ _ROLE_SHAPES = {
     "lock": ("audit/journal.lock", "audit", "regular_file", 1),
     "boundary": ("audit-boundary", "anchor", "regular_file", 1),
 }
+_EXPECTED_ROOT_ENTRIES = frozenset({"vault", "audit", "audit-boundary"})
+_EXPECTED_AUDIT_ENTRIES = frozenset({"journal.lock"})
 _IDENTITY_RE = re.compile(r"[0-9]+:[0-9]+\Z")
 _OPAQUE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{7,127}\Z")
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -78,6 +80,30 @@ def _assert_kind_and_links(info: os.stat_result, *, kind: str, link_count: int |
         raise FixtureTopologyRefused("topology_link_count_mismatch")
 
 
+def _assert_closed_world_entries(entries: Iterable[str], *, expected: frozenset[str]) -> None:
+    """Require the fixture directory to contain exactly its canonical entries."""
+
+    actual = frozenset(entries)
+    if actual - expected:
+        raise FixtureTopologyRefused("topology_unexpected_entry")
+    if actual != expected:
+        raise FixtureTopologyRefused("topology_entry_set_mismatch")
+
+
+def _descriptor_api_supported() -> bool:
+    """Return whether the required POSIX descriptor operations are available."""
+
+    return (
+        os.name == "posix"
+        and hasattr(os, "O_NOFOLLOW")
+        and hasattr(os, "O_DIRECTORY")
+        and os.open in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd
+        and os.stat in os.supports_follow_symlinks
+        and os.listdir in os.supports_fd
+    )
+
+
 @dataclass(frozen=True)
 class TopologyRole:
     """An exact role record from a canonical fixture topology manifest."""
@@ -125,6 +151,14 @@ def capture_canonical_manifest(fixture_root: str | Path) -> bytes:
     root = Path(fixture_root)
     anchor_info = _lstat(root)
     _assert_kind_and_links(anchor_info, kind="directory", link_count=anchor_info.st_nlink)
+    try:
+        _assert_closed_world_entries((entry.name for entry in root.iterdir()), expected=_EXPECTED_ROOT_ENTRIES)
+        _assert_closed_world_entries(
+            (entry.name for entry in (root / "audit").iterdir()),
+            expected=_EXPECTED_AUDIT_ENTRIES,
+        )
+    except OSError as exc:
+        raise FixtureTopologyRefused("topology_entry_unavailable") from exc
     roles: dict[str, dict[str, object]] = {}
     for name, (relative_path, parent, kind, link_count) in _ROLE_SHAPES.items():
         entry = root / relative_path
@@ -231,6 +265,8 @@ class FixtureTopologyVerifier:
     ) -> FixtureTopologyManifest:
         """Reject topology changes before any hypothetical writer can run."""
 
+        if not _descriptor_api_supported():
+            raise FixtureTopologyRefused("topology_descriptor_api_unsupported")
         manifest = parse_canonical_manifest(payload)
         anchor_info = _lstat(self._fixture_root)
         _assert_kind_and_links(anchor_info, kind="directory", link_count=anchor_info.st_nlink)
@@ -248,6 +284,7 @@ class FixtureTopologyVerifier:
                 ),
                 descriptor_opener=descriptor_opener,
             )
+            _assert_closed_world_entries(os.listdir(anchor_fd), expected=_EXPECTED_ROOT_ENTRIES)
             root_role = manifest.roles["root"]
             root_fd = self._open_and_verify(
                 name=root_role.path,
@@ -263,6 +300,7 @@ class FixtureTopologyVerifier:
                 role=audit_role,
                 descriptor_opener=descriptor_opener,
             )
+            _assert_closed_world_entries(os.listdir(audit_fd), expected=_EXPECTED_AUDIT_ENTRIES)
             lock_role = manifest.roles["lock"]
             lock_fd = self._open_and_verify(
                 name=lock_role.path.rsplit("/", 1)[1],
@@ -573,9 +611,9 @@ class FixtureOnlyDenyGate:
         try:
             verified_topology = self._topology_verifier.verify(manifest)
         except FixtureTopologyRefused:
-            return FixtureDenyDecision("topology_refused", _write_sink_calls(self._write_sink))
+            return FixtureDenyDecision("topology_refused", 0)
         if not isinstance(binding, FixtureAuthorityBinding) or binding.topology_digest != verified_topology.digest:
-            return FixtureDenyDecision("topology_binding_refused", _write_sink_calls(self._write_sink))
+            return FixtureDenyDecision("topology_binding_refused", 0)
         verified = self._authority.verify_fixture_confirmation(
             confirmation=confirmation,
             proposal_id=proposal_id,
@@ -583,13 +621,8 @@ class FixtureOnlyDenyGate:
             owner_session_binding=self._authority.current_owner_session_binding(),
         )
         if not verified:
-            return FixtureDenyDecision("authority_refused", _write_sink_calls(self._write_sink))
-        return FixtureDenyDecision("fixture_only_denied", _write_sink_calls(self._write_sink))
-
-
-def _write_sink_calls(write_sink: object) -> int:
-    calls = getattr(write_sink, "calls", None)
-    return calls if type(calls) is int and calls >= 0 else 0
+            return FixtureDenyDecision("authority_refused", 0)
+        return FixtureDenyDecision("fixture_only_denied", 0)
 
 
 def _is_opaque(value: object) -> bool:

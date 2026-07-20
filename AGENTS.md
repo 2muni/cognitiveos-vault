@@ -89,6 +89,11 @@ clean integration baseline, not a general development workspace.
 - A valid model header is not evidence that a task has started. After the
   model/effort check, also verify that the agent has progressed past MCP
   initialization and produced a repository inspection or progress event.
+- Treat GitHub authentication as a worktree creation preflight. The setup hook
+  must verify `gh auth status --hostname github.com` and run `gh auth setup-git`
+  before an agent receives its task brief. Credentials remain host-level and
+  must never be copied into a worktree. If authentication is unavailable, stop
+  setup and require `gh auth login --hostname github.com` before resuming.
 
 ## Vault Safety
 

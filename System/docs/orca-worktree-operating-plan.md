@@ -182,22 +182,25 @@ Task names should describe the outcome, not the agent or session. Examples:
 5. Run the agent/MCP startup preflight below before submitting the task brief.
    A worktree created with `--setup skip` is not eligible for an MCP-backed
    implementation task until its environment is installed and import-verified.
-6. Put the objective, scope, excluded work, completion gates, and model tier in
+6. Require the setup hook to verify host-level GitHub authentication with
+   `gh auth status --hostname github.com` and initialize the Git credential
+   helper with `gh auth setup-git`. Do not copy tokens into the worktree.
+7. Put the objective, scope, excluded work, completion gates, and model tier in
    the worktree task description before implementation.
-7. Inspect the current contracts and tests before editing.
-8. Implement the smallest independently reviewable unit.
-9. Run focused checks, then the lane's required regression gates.
-10. Review the Orca diff and checkpoint the verified state.
-11. Commit intentionally, push the task branch, and open a draft pull request.
-12. Resolve review and CI in the same worktree.
-13. Merge only when the branch is current with `main` and all gates pass.
-14. Close the worktree only after verifying there are no uncommitted or
+8. Inspect the current contracts and tests before editing.
+9. Implement the smallest independently reviewable unit.
+10. Run focused checks, then the lane's required regression gates.
+11. Review the Orca diff and checkpoint the verified state.
+12. Commit intentionally, push the task branch, and open a draft pull request.
+13. Resolve review and CI in the same worktree.
+14. Merge only when the branch is current with `main` and all gates pass.
+15. Close the worktree only after verifying there are no uncommitted or
     untracked files. Stop any live terminals, then remove completed disposable
     worktrees with `orca worktree rm --worktree id:<repoId>::<path> --force
     --json`; archive a worktree instead when its review, recovery, or audit
     context must remain available. Keep the remote branch only when repository
     policy requires it.
-15. Confirm the cleanup with `orca worktree list --json` and `git worktree
+16. Confirm the cleanup with `orca worktree list --json` and `git worktree
     list --porcelain`. The completed worktree must no longer be registered,
     while the primary `main` worktree remains present and clean.
 
@@ -255,6 +258,23 @@ neither `.venv` nor `.venv-embeddings312`, fell back to system Python 3.9.6,
 could not import `cognitiveos`, and repeatedly failed the MCP handshake before
 the implementation prompt was processed. Record such failures in the Orca
 workspace comment and resume only after the preflight passes.
+
+### GitHub authentication preflight
+
+GitHub authentication is host-level state, not worktree state. Every setup hook
+run must perform these checks before the agent task is submitted:
+
+```text
+gh auth status --hostname github.com
+gh auth setup-git
+```
+
+If `gh auth status` fails, setup must stop and instruct the operator to run
+`gh auth login --hostname github.com` once on the host. The hook must not copy
+tokens, create credential files inside the worktree, or silently continue into
+implementation. This prevents a sub-workspace from discovering expired or
+missing GitHub authorization only when it attempts to push, create a PR, or
+post a review report.
 
 ## Required Task Brief
 

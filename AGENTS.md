@@ -79,6 +79,16 @@ clean integration baseline, not a general development workspace.
 - Review `orca.yaml` before trusting its hooks. The repository setup hook may
   create a local development environment, but it must not build indexes,
   download models, synchronize notes, or enable writeback.
+- Never create an implementation worktree with `--setup skip` when its agent
+  will use the CognitiveOS MCP server. Before launching the agent, require the
+  worktree-local `.venv` and verify that its selected Python can import
+  `cognitiveos` and start `scripts/run-cognitiveos-mcp.sh` through a successful
+  MCP handshake. If the preflight fails, mark the workspace blocked and repair
+  or recreate its environment before submitting the task; do not leave a
+  prompt queued behind repeated MCP startup retries.
+- A valid model header is not evidence that a task has started. After the
+  model/effort check, also verify that the agent has progressed past MCP
+  initialization and produced a repository inspection or progress event.
 
 ## Vault Safety
 
@@ -133,3 +143,22 @@ Avoid presenting model inference as vault fact unless it is grounded in retrieve
 - Prefer platform-neutral Python commands in documentation and tests.
 - Use `scripts/run-cognitiveos-mcp.sh` on macOS and `scripts/run-cognitiveos-mcp.ps1` on Windows.
 - Keep private note synchronization separate from Git repository synchronization.
+
+### Orca MCP startup preflight
+
+For every new worktree that will start a Codex agent, run the following checks
+before submitting the task brief. These checks are read-only and must target
+the child worktree, never `main`:
+
+```text
+test -x <worktree>/.venv/bin/python
+<worktree>/.venv/bin/python -c 'import cognitiveos; print(cognitiveos.__version__)'
+```
+
+Then start the terminal with the fixed launcher and verify both the model header
+and an MCP-ready/progress event. A missing `.venv`, a system Python fallback,
+`ModuleNotFoundError`, `initialize response`/handshake closure, or a terminal
+that remains in MCP startup for more than a short bounded interval is a
+preflight failure. Stop the terminal, record the failure in Orca, and do not
+retry the same queued prompt indefinitely. The setup hook must be rerun or the
+worktree recreated with the required environment before implementation starts.

@@ -179,22 +179,25 @@ Task names should describe the outcome, not the agent or session. Examples:
 3. Review and trust `orca.yaml` only when its diff is understood.
 4. Let the setup hook create the worktree-local `.venv` and install
    `.[dev,mcp]`.
-5. Put the objective, scope, excluded work, completion gates, and model tier in
+5. Run the agent/MCP startup preflight below before submitting the task brief.
+   A worktree created with `--setup skip` is not eligible for an MCP-backed
+   implementation task until its environment is installed and import-verified.
+6. Put the objective, scope, excluded work, completion gates, and model tier in
    the worktree task description before implementation.
-6. Inspect the current contracts and tests before editing.
-7. Implement the smallest independently reviewable unit.
-8. Run focused checks, then the lane's required regression gates.
-9. Review the Orca diff and checkpoint the verified state.
-10. Commit intentionally, push the task branch, and open a draft pull request.
-11. Resolve review and CI in the same worktree.
-12. Merge only when the branch is current with `main` and all gates pass.
-13. Close the worktree only after verifying there are no uncommitted or
+7. Inspect the current contracts and tests before editing.
+8. Implement the smallest independently reviewable unit.
+9. Run focused checks, then the lane's required regression gates.
+10. Review the Orca diff and checkpoint the verified state.
+11. Commit intentionally, push the task branch, and open a draft pull request.
+12. Resolve review and CI in the same worktree.
+13. Merge only when the branch is current with `main` and all gates pass.
+14. Close the worktree only after verifying there are no uncommitted or
     untracked files. Stop any live terminals, then remove completed disposable
     worktrees with `orca worktree rm --worktree id:<repoId>::<path> --force
     --json`; archive a worktree instead when its review, recovery, or audit
     context must remain available. Keep the remote branch only when repository
     policy requires it.
-14. Confirm the cleanup with `orca worktree list --json` and `git worktree
+15. Confirm the cleanup with `orca worktree list --json` and `git worktree
     list --porcelain`. The completed worktree must no longer be registered,
     while the primary `main` worktree remains present and clean.
 
@@ -224,6 +227,34 @@ one winner. Do not merge two alternatives merely because both exist.
   sibling branch, unless a temporary stacked branch is explicitly documented.
 - Worktree setup must not build indexes, download models, contact model APIs,
   synchronize notes, or enable writeback.
+
+## Agent and MCP Startup Preflight
+
+The worktree setup hook and the MCP server have separate responsibilities. The
+hook prepares the child environment; the MCP server starts only after that
+environment is proven usable. A model header alone does not prove that the
+agent is executing the task.
+
+For each child worktree that will run a Codex agent:
+
+1. Use the setup hook, or an explicitly approved equivalent, to create the
+   local `.venv` and install `.[dev,mcp]`. Do not use `--setup skip` for an
+   MCP-backed implementation task.
+2. Verify `<worktree>/.venv/bin/python` exists and can import `cognitiveos`.
+3. Start `scripts/run-orca-codex.sh` with the exact account-compatible model
+   and effort, then verify the header.
+4. Verify that the terminal progresses beyond MCP initialization and emits a
+   repository inspection or progress event.
+5. Treat `ModuleNotFoundError`, fallback to system Python, MCP handshake
+   closure, `initialize response` failure, or a repeated startup loop as a
+   preflight failure. Stop the terminal and repair or recreate the environment;
+   never leave the task prompt queued while retrying the same failed startup.
+
+The observed failure mode was a worktree created with `--setup skip`: it had
+neither `.venv` nor `.venv-embeddings312`, fell back to system Python 3.9.6,
+could not import `cognitiveos`, and repeatedly failed the MCP handshake before
+the implementation prompt was processed. Record such failures in the Orca
+workspace comment and resume only after the preflight passes.
 
 ## Required Task Brief
 

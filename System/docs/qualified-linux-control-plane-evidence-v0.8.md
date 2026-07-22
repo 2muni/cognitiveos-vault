@@ -96,6 +96,21 @@ BuildVersion: 24G720
 Darwin 24.6.0, x86_64
 ```
 
+### 2026-07-22 diagnostic execution record
+
+- Model record: `gpt-5.6-terra / xhigh`.
+- Reviewed code commit: `ce69986484b8a79dadd34128e2f5ac34079f1c6c`.
+- `uname -srm`: `Darwin 24.6.0 x86_64`; effective UID: `501`.
+- Interpreter: CPython `3.14.6`, which does not meet the required CPython 3.12 tuple.
+- The qualified-Linux command ran eight tests and skipped all eight with
+  `requires the declared Linux control-plane tuple`.
+- The warning-strict complete suite ran `193` tests successfully with `24`
+  platform/capability skips; `git diff --check` succeeded.
+
+The required local-ext4 mount evidence and `/proc/self/ns/mnt` namespace ID
+do not exist on this macOS host and were not fabricated or inferred. This
+diagnostic record is **BLOCKED** and contributes no Linux qualification.
+
 No Linux descriptor, filesystem, mount namespace, process-lock, crash-safety,
 or authenticated-session result was executed or inferred from this platform.
 The qualification gate is therefore **BLOCKED**.

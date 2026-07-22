@@ -151,7 +151,9 @@ enabled_tools = [
 ]
 ```
 
-Select `Sol / high` for ordinary writeback review and `Sol / ultra` for high-impact migration or authorization-boundary work. Keep approval policy `on-request` or stricter.
+Select `gpt-5.6-terra / high` for ordinary writeback review and
+`gpt-5.6-terra / xhigh` or `max` for high-impact migration or
+authorization-boundary work. Keep approval policy `on-request` or stricter.
 
 ## Non-goals for v0.1
 

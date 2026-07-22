@@ -62,7 +62,7 @@ Required:
 
 - macOS on an Intel Mac
 - Git
-- Python 3.11 or newer
+- Python 3.12 or newer (Python 3.14.6 is the default runtime)
 - Obsidian
 - Codex app or VS Code with the Codex extension
 
@@ -72,10 +72,10 @@ Install Apple command line tools when Git is missing:
 xcode-select --install
 ```
 
-If Python 3.11 or newer is missing and Homebrew is already installed:
+If Python 3.12 or newer is missing and Homebrew is already installed:
 
 ```bash
-brew install python@3.13
+brew install python@3.14
 ```
 
 On Intel Macs, Homebrew normally uses `/usr/local`. Ensure `/usr/local/bin` is on `PATH` before opening Codex or VS Code from a shell.
@@ -111,23 +111,25 @@ The bootstrap creates `.venv`, runs all tests, rebuilds the disposable local ind
 
 6. Open the same vault root in Obsidian and Codex or VS Code.
 7. Trust the project when prompted so `.codex/config.toml` can load.
-8. Select the GPT-5.6 task tier in the Codex client.
+8. Use the repository's documented Codex model and reasoning tier for the task.
 9. Confirm the `cognitiveos` MCP server exposes nine read-only tools.
 10. Test `list_recent_notes`, then `search_notes` with a known local query.
 
 ## Codex Model Policy
 
-The repository does not pin a model identifier in `.codex/config.toml`. Model access and Terra/Sol selection are client-side and account-dependent.
+Use the official model ID and reasoning tier in `AGENTS.md`. For current
+cost-efficient maintenance and documentation work, use
+`gpt-5.6-terra / low`; do not use historical Terra/Sol labels as model IDs.
 
 Use this task scale:
 
 | Tier | Intended work |
 | --- | --- |
-| `Terra / light` | UI checks, status, small docs, routine Git |
-| `Sol / light` | narrow implementation and focused fixes |
-| `Sol / medium` | normal features, environment work, retrieval changes |
-| `Sol / high` | architecture, schema, writeback, security review |
-| `Sol / ultra` | high-impact migrations and authorization boundaries |
+| `gpt-5.6-terra / low` | UI checks, status, small docs, routine Git |
+| `gpt-5.6-terra / low` | narrow implementation and focused fixes |
+| `gpt-5.6-terra / medium` | normal features, environment work, retrieval changes |
+| `gpt-5.6-terra / high` | architecture, schema, writeback, security review |
+| `gpt-5.6-terra / xhigh` or `max` | high-impact migrations and authorization boundaries |
 
 Every completed task must end with the next recommended task and tier.
 
@@ -141,7 +143,7 @@ Run at any time from the vault root:
 
 Expected invariants:
 
-- Python is 3.11 or newer
+- Python is 3.12 or newer
 - all unit tests pass
 - the vault index rebuild succeeds
 - MCP server name is `cognitiveos`

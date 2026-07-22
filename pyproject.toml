@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "cognitiveos"
 version = "0.5.0"
 description = "Read-only Obsidian PKM indexer and MCP interface"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]

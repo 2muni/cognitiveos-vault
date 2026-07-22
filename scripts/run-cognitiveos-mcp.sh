@@ -14,12 +14,12 @@ elif command -v python3 >/dev/null 2>&1; then
 elif command -v python >/dev/null 2>&1; then
   python_bin="$(command -v python)"
 else
-  echo "CognitiveOS requires Python 3.11 or newer." >&2
+  echo "CognitiveOS requires Python 3.12 or newer." >&2
   exit 1
 fi
 
-if ! "$python_bin" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
-  echo "CognitiveOS requires Python 3.11 or newer." >&2
+if ! "$python_bin" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)'; then
+  echo "CognitiveOS requires Python 3.12 or newer." >&2
   exit 1
 fi
 

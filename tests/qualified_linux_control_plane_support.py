@@ -54,6 +54,19 @@ class QualifiedLinuxFixtureRefusal(RuntimeError):
     """A test-only signal that Linux evidence cannot be safely constructed."""
 
 
+class ReplayWriteInterruption(BaseException):
+    """Deterministic crash-shaped test interruption after one write boundary.
+
+    This deliberately derives from ``BaseException`` so the fixture's ordinary
+    fail-closed exception mapping cannot turn an injected process interruption
+    into a normal result. It is test support only and is never packaged.
+    """
+
+    def __init__(self, boundary: str) -> None:
+        super().__init__(f"interrupted after {boundary}")
+        self.boundary = boundary
+
+
 @dataclass(frozen=True)
 class DeclaredLinuxTuple:
     """The only tuple this fixture may count as Linux execution evidence."""
@@ -188,7 +201,18 @@ def _open_absolute_directory_nofollow(path: Path) -> int:
     try:
         for component in rendered.split("/")[1:]:
             _validate_component(component)
-            next_fd = os.open(component, _directory_flags(), dir_fd=current_fd)
+            try:
+                named = os.stat(component, dir_fd=current_fd, follow_symlinks=False)
+            except OSError as error:
+                raise QualifiedLinuxFixtureRefusal("root path component is unavailable") from error
+            if stat.S_ISLNK(named.st_mode):
+                raise QualifiedLinuxFixtureRefusal("root path component is a symlink alias")
+            if not stat.S_ISDIR(named.st_mode):
+                raise QualifiedLinuxFixtureRefusal("root path component is not a directory")
+            try:
+                next_fd = os.open(component, _directory_flags(), dir_fd=current_fd)
+            except OSError as error:
+                raise QualifiedLinuxFixtureRefusal("root path descriptor is unavailable") from error
             try:
                 _same_named_entry(current_fd, component, next_fd, directory=True)
             except Exception:
@@ -251,6 +275,7 @@ class DisposableLinuxDescriptorProbe:
 
         root_fd = _open_absolute_directory_nofollow(self._root_path)
         current_fd = root_fd
+        observed_root_identity = _identity_from_stat(os.fstat(root_fd))
         allowed_identity: LinuxObjectIdentity | None = None
         try:
             for index, component in enumerate(target_components):
@@ -277,7 +302,7 @@ class DisposableLinuxDescriptorProbe:
                 namespace_id=self._namespace_id,
                 requested_root_path=os.fspath(self._root_path),
                 canonical_root_path=os.fspath(self._root_path),
-                root_identity=provenance.root_identity,
+                root_identity=observed_root_identity,
                 descriptor_race_detected=False,
                 allowed_root_id="linux-fixture-notes-0001",
                 allowed_root_identity=allowed_identity,
@@ -309,6 +334,7 @@ class DisposableOwnerOnlyReplayLedger(DurableReplayLedger):
         state_path: Path,
         *,
         after_lock_acquired: Callable[[], None] | None = None,
+        after_write_boundary: Callable[[str], None] | None = None,
     ) -> None:
         self._state_path = Path(os.fspath(state_path))
         self._directory = self._state_path.parent
@@ -316,6 +342,7 @@ class DisposableOwnerOnlyReplayLedger(DurableReplayLedger):
         self._lock_name = self._state_name + ".lock"
         self._temporary_prefix = self._state_name + ".tmp."
         self._after_lock_acquired = after_lock_acquired
+        self._after_write_boundary = after_write_boundary
 
     @property
     def lock_path(self) -> Path:
@@ -451,12 +478,21 @@ class DisposableOwnerOnlyReplayLedger(DurableReplayLedger):
             while written < len(payload):
                 written += os.write(temporary_fd, payload[written:])
             os.fsync(temporary_fd)
+            self._interrupt_after_write_boundary("temporary_file_fsync")
         finally:
             os.close(temporary_fd)
         if not _same_path_entry(directory_fd, self._lock_name, lock_fd):
             raise QualifiedLinuxFixtureRefusal("lock path changed before commit")
         os.replace(temporary_name, self._state_name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+        self._interrupt_after_write_boundary("rename")
         os.fsync(directory_fd)
+        self._interrupt_after_write_boundary("directory_fsync")
+
+    def _interrupt_after_write_boundary(self, boundary: str) -> None:
+        """Invoke the deterministic interruption hook only in disposable tests."""
+
+        if self._after_write_boundary is not None:
+            self._after_write_boundary(boundary)
 
 
 def _require_owner_regular(fd: int) -> None:
@@ -559,6 +595,7 @@ def authority_for_fixture(
     *,
     runtime: AuthorityRuntime | None = None,
     after_lock_acquired: Callable[[], None] | None = None,
+    after_write_boundary: Callable[[str], None] | None = None,
 ) -> tuple[TrustedOwnerAuthority, AuthorityRuntime]:
     """Build a disconnected authority over the temporary replay fixture."""
 
@@ -570,6 +607,7 @@ def authority_for_fixture(
             replay_ledger=DisposableOwnerOnlyReplayLedger(
                 state_path,
                 after_lock_acquired=after_lock_acquired,
+                after_write_boundary=after_write_boundary,
             ),
             clock=_StaticClock(),
         ),

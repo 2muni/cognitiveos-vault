@@ -28,6 +28,7 @@ from cognitiveos.control_plane import (
 from qualified_linux_control_plane_support import (
     DisposableLinuxDescriptorProbe,
     QualifiedLinuxFixtureRefusal,
+    ReplayWriteInterruption,
     authority_for_fixture,
     consume_in_separate_process,
     fixture_capability,
@@ -96,13 +97,35 @@ class QualifiedLinuxControlPlaneEvidenceTests(unittest.TestCase):
                 RootDecisionReason.ROOT_IDENTITY_MISMATCH,
             )
 
+    def test_target_evidence_reobserves_the_opened_root_descriptor_identity(self) -> None:
+        with self._temporary_root() as temporary:
+            root, namespace_id = self._prepare_descriptor_fixture(temporary)
+            probe = DisposableLinuxDescriptorProbe(root, namespace_id=namespace_id)
+            provenance = probe.bootstrap_provenance()
+            substituted_provenance = replace(
+                provenance,
+                root_identity=LinuxObjectIdentity(
+                    device=provenance.root_identity.device,
+                    inode=provenance.root_identity.inode + 1,
+                ),
+            )
+
+            evidence = probe.build_target_evidence(substituted_provenance, ("Notes", "review.md"))
+
+            self.assertEqual(evidence.root_identity, provenance.root_identity)
+            self.assertNotEqual(evidence.root_identity, substituted_provenance.root_identity)
+            self.assertEqual(
+                qualify_root_containment(substituted_provenance, evidence).reason,
+                RootDecisionReason.ROOT_IDENTITY_MISMATCH,
+            )
+
     def test_path_aliases_and_descriptor_replacement_fail_closed(self) -> None:
         with self._temporary_root() as temporary:
             root, namespace_id = self._prepare_descriptor_fixture(temporary)
             alias = Path(temporary) / "vault-alias"
             alias.symlink_to(root, target_is_directory=True)
             alias_probe = DisposableLinuxDescriptorProbe(alias, namespace_id=namespace_id)
-            with self.assertRaises(QualifiedLinuxFixtureRefusal):
+            with self.assertRaisesRegex(QualifiedLinuxFixtureRefusal, "root path component is a symlink alias"):
                 alias_probe.bootstrap_provenance()
 
             probe = DisposableLinuxDescriptorProbe(root, namespace_id=namespace_id)
@@ -239,6 +262,45 @@ class QualifiedLinuxControlPlaneEvidenceTests(unittest.TestCase):
                 CapabilityDecisionReason.REPLAY_STATE_UNAVAILABLE,
             )
             self.assertFalse(state_path.exists(), "lock replacement must not create replay state")
+
+    def test_deterministic_write_interruptions_reopen_without_repair(self) -> None:
+        expected_reopen_results = {
+            "temporary_file_fsync": CapabilityDecisionReason.REPLAY_STATE_UNAVAILABLE,
+            "rename": CapabilityDecisionReason.REPLAYED,
+            "directory_fsync": CapabilityDecisionReason.REPLAYED,
+        }
+        for boundary, expected in expected_reopen_results.items():
+            with self.subTest(boundary=boundary), self._temporary_root() as temporary:
+                temporary_root = Path(temporary)
+                require_declared_linux_tuple(self, temporary_root)
+                state_path = temporary_root / "replay-state.json"
+                runtime = fixture_runtime()
+
+                def interrupt_after(observed_boundary: str) -> None:
+                    if observed_boundary == boundary:
+                        raise ReplayWriteInterruption(observed_boundary)
+
+                authority, _ = authority_for_fixture(
+                    state_path,
+                    runtime=runtime,
+                    after_write_boundary=interrupt_after,
+                )
+                with self.assertRaisesRegex(ReplayWriteInterruption, boundary):
+                    authority.consume(fixture_capability(runtime))
+
+                temporary_entries = list(temporary_root.glob(state_path.name + ".tmp.*"))
+                if boundary == "temporary_file_fsync":
+                    self.assertFalse(state_path.exists())
+                    self.assertEqual(1, len(temporary_entries))
+                else:
+                    self.assertTrue(state_path.exists())
+                    self.assertFalse(temporary_entries)
+
+                reopened_authority, reopened_runtime = authority_for_fixture(state_path, runtime=runtime)
+                self.assertEqual(
+                    reopened_authority.consume(fixture_capability(reopened_runtime)).reason,
+                    expected,
+                )
 
     def test_monotonic_expiry_rotation_revocation_and_session_lifecycle_refuse_before_replay(self) -> None:
         with self._temporary_root() as temporary:

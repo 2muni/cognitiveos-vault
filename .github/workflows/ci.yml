@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -50,6 +51,33 @@ jobs:
           cache: pip
       - run: python -m pip install '.[dev,mcp,local-embeddings]'
       - run: python -W error -m unittest discover -s tests -v
+
+  qualified-linux-evidence:
+    name: Qualified Linux evidence / CPython 3.12
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHON_BIN: python
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install '.[dev,mcp]'
+      - run: bash scripts/run-qualified-linux-evidence.sh
+        env:
+          QUALIFIED_LINUX_EVIDENCE_DIR: ${{ runner.temp }}/qualified-linux-evidence
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: qualified-linux-evidence
+          path: ${{ runner.temp }}/qualified-linux-evidence/
+          if-no-files-found: error
+          retention-days: 14
 
   release-gates:
     name: Reproducible release gates

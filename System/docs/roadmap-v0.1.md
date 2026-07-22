@@ -433,6 +433,6 @@ The canonical v0.4 feature and release gate status is maintained in
 
 Recommended model:
 
-- `Sol / medium` for alias-aware retrieval integration and regression review
-- `Sol / high` for writeback, schema, authorization, or security work
-- `Sol / ultra` only for high-impact migrations or permission-boundary changes
+- `gpt-5.6-terra / medium` for alias-aware retrieval integration and regression review
+- `gpt-5.6-terra / high` for writeback, schema, authorization, or security work
+- `gpt-5.6-terra / xhigh` or `max` only for high-impact migrations or permission-boundary changes

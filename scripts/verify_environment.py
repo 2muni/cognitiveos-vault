@@ -15,8 +15,8 @@ from cognitiveos.retrieval import RetrievalService  # noqa: E402
 
 
 def main() -> None:
-    if sys.version_info < (3, 11):
-        raise SystemExit("CognitiveOS requires Python 3.11 or newer")
+    if sys.version_info < (3, 12):
+        raise SystemExit("CognitiveOS requires Python 3.12 or newer")
 
     tests = subprocess.run(
         [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],

@@ -157,13 +157,13 @@ and one primary objective per task.
 
 | Lane | Branch pattern | Typical work | Model tier |
 | --- | --- | --- | --- |
-| Documentation | `codex/docs-<topic>` | guides, examples, status records | `Terra / light` |
-| Maintenance | `codex/fix-<topic>` | narrow defects, packaging, compatibility | `Sol / light` |
-| Feature | `codex/feature-<topic>` | normal service or CLI capability | `Sol / medium` |
-| Retrieval | `codex/retrieval-<topic>` | indexing, ranking, context, evaluation | `Sol / medium` |
-| Schema | `codex/schema-<topic>` | note/index/MCP contract evolution | `Sol / high` |
-| Security | `codex/security-<topic>` | permission and writeback boundaries | `Sol / high` or `Sol / ultra` |
-| Release | `codex/release-<version>` | stabilization, packaging, publication | `Sol / medium` |
+| Documentation | `codex/docs-<topic>` | guides, examples, status records | `gpt-5.6-terra / low` |
+| Maintenance | `codex/fix-<topic>` | narrow defects, packaging, compatibility | `gpt-5.6-terra / low` |
+| Feature | `codex/feature-<topic>` | normal service or CLI capability | `gpt-5.6-terra / medium` |
+| Retrieval | `codex/retrieval-<topic>` | indexing, ranking, context, evaluation | `gpt-5.6-terra / medium` |
+| Schema | `codex/schema-<topic>` | note/index/MCP contract evolution | `gpt-5.6-terra / high` |
+| Security | `codex/security-<topic>` | permission and writeback boundaries | `gpt-5.6-terra / high`, `xhigh`, or `max` |
+| Release | `codex/release-<version>` | stabilization, packaging, publication | `gpt-5.6-terra / medium` |
 
 Task names should describe the outcome, not the agent or session. Examples:
 

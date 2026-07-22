@@ -116,7 +116,7 @@ mechanical checks and the opt-in downstream answer-validation helper.
 
 ## Intel Mac Quick Start
 
-CognitiveOS requires Python 3.11 or newer. This repository pins Python 3.14.6
+CognitiveOS requires Python 3.12 or newer. This repository pins Python 3.14.6
 for version managers such as `uv` and `pyenv`; the MCP launcher uses the local
 `.venv` when it exists, so it does not depend on the system `python3` being the
 preferred version.
@@ -162,7 +162,7 @@ https://github.com/2muni/cognitiveos-vault/releases/tag/v0.5.0
 ```
 
 Download either asset, verify its SHA-256 digest, then install the wheel with
-Python 3.11 or newer:
+Python 3.12 or newer:
 
 ```bash
 shasum -a 256 cognitiveos-0.5.0-py3-none-any.whl

@@ -14,12 +14,12 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "Python 3.11+ is required. On an Intel Mac with Homebrew, run: brew install python@3.13" >&2
+  echo "Python 3.12+ is required. On an Intel Mac with Homebrew, run: brew install python@3.14" >&2
   exit 1
 fi
 
-if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
-  echo "Python 3.11 or newer is required." >&2
+if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)'; then
+  echo "Python 3.12 or newer is required." >&2
   exit 1
 fi
 

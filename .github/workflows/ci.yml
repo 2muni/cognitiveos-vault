@@ -59,7 +59,7 @@ jobs:
     timeout-minutes: 15
     env:
       PYTHON_BIN: python
-      QUALIFIED_LINUX_EVIDENCE_DIR: ${{ runner.temp }}/qualified-linux-evidence
+      QUALIFIED_LINUX_EVIDENCE_DIR: qualified-linux-evidence
     steps:
       - uses: actions/checkout@v6
         with:

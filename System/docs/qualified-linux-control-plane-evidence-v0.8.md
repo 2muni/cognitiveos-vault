@@ -2,19 +2,16 @@
 
 ## Status: BLOCKED — no qualified Linux execution in this worktree
 
-This is the Issue #80 evidence and execution plan for the disconnected,
-default-off canonical-root control-plane foundation from PR #79. The active
+This is the Issue #84 remediation and execution plan for the disconnected,
+default-off canonical-root control-plane evidence in PR #82. The active
 worktree host is **macOS 15.7.7 (Darwin 24.6.0, x86_64)**, not Linux. The
 Linux-only tests therefore skip on this host. A skip is an explicit blocked
 qualification gate; it is not Linux evidence and must not be summarized as a
 pass.
 
-This repair branch is a temporary documented stack on the unmerged PR #79 head
-`aee5f7c067ff22bfdca701e1f3c828b21c390422`. The dependency is necessary
-because PR #79 contains the disconnected `cognitiveos.control_plane` contracts
-that Issue #80 tests. It is not an integration, merge, or approval of PR #79.
-PR #79 must be independently reviewed and merged (or this evidence rebased)
-before integration is considered.
+The Issue #84 branch starts from `origin/main` and replays the unmerged PR #82
+foundation so its draft pull request is self-contained. It remains a repair
+candidate, not an integration or approval of the disconnected control plane.
 
 ## Declared Qualification Tuple
 
@@ -53,10 +50,10 @@ the shipped package code.
 | Evidence area | Disposable Linux test behavior | Required refusal behavior |
 | --- | --- | --- |
 | Immutable local bootstrap provenance | Builds a frozen `ConfiguredVaultRootProvenance` from descriptor observations of a temporary root and `Notes` directory; a changed generation changes the provenance digest. | No current-directory, client root, environment, policy, or real-vault source is used. |
-| No-follow containment | Walks each absolute root and target component using `openat`-style descriptor-relative `O_NOFOLLOW` operations and compares `fstat` to no-follow `stat(..., dir_fd=...)`. | A root symlink alias returns the controlled `QualifiedLinuxFixtureRefusal` instead of leaking `NotADirectoryError`; hard-link aliases, lexical `..`, component escapes, special types, and changed descriptor/path identities also refuse. |
-| Namespace and device/inode binding | Reads only the process mount-namespace handle, hashes it to an opaque test identifier, and re-observes temporary-root and allowed-root device/inode values from the opened descriptors. | Evidence is bound to the opened root descriptor identity; substituted namespace or device/inode evidence returns the existing denial-only control-plane reason. |
+| No-follow containment | Walks each absolute root and target component using `openat`-style descriptor-relative `O_NOFOLLOW` operations and compares `fstat` to no-follow `stat(..., dir_fd=...)`. | Root and leaf symlink aliases return the controlled `QualifiedLinuxFixtureRefusal`, never a raw no-follow error; hard-link aliases, lexical `..`, component escapes, special types, and changed descriptor/path identities also refuse. |
+| Namespace and device/inode binding | Reads only the process mount-namespace handle, hashes it to an opaque test identifier, and re-observes temporary-root and allowed-root device/inode values from the opened descriptors. | A replacement root that receives the original `Notes` directory is rejected as `root_identity_mismatch`; namespace or device/inode substitutions return the existing denial-only control-plane reason. |
 | Alias and descriptor race | Creates only temporary symlink aliases and performs a controlled rename/replacement after a descriptor open. | The no-follow probe raises a failure before it can construct evidence. |
-| Cross-process replay | Starts two independent `spawn` processes over one owner-only temporary state file, then constructs a fresh reader after both exit. | Exactly one `consumed_default_off`, one `replayed`, and a fresh-reader `replayed`; the result remains denied. |
+| Cross-process replay | Takes the cross-process lock before deciding whether a temporary record is abandoned, starts two independent `spawn` processes over one owner-only state file, then constructs a fresh reader after both exit. | Exactly one `consumed_default_off`, one `replayed`, and a fresh-reader `replayed`; a genuine post-crash orphan still refuses as `replay_state_unavailable`, and every result remains denied. |
 | Crash/torn-write and lock replacement | Supplies malformed partial JSON, a controlled replacement of the locked path, and deterministic crash-shaped interruptions immediately after temporary-file `fsync`, `rename`, and directory `fsync`; each interruption reopens a fresh fixture reader. | A post-temporary-`fsync` orphan refuses as `replay_state_unavailable`; visible post-rename and post-directory-`fsync` records reopen as `replayed`; there is no repair, replay-state creation after lock replacement, or source write. |
 | Expiry, rotation, revocation, session, and boot | Uses only synthetic opaque records and a fixed test clock. | Monotonic expiry, closed-session binding, changed key/revocation epochs, and changed server boot are refused before a replay claim. |
 
@@ -77,7 +74,7 @@ PYTHONPATH=src ./.venv/bin/python -W error -m unittest discover -s tests -v
 git diff --check
 ```
 
-Before attaching the output to Issue #80, confirm that the focused suite did
+Before attaching the output to Issue #84, confirm that the focused suite did
 not skip because of the tuple guard. Record the required host facts listed in
 the tuple section. Do not use a macOS/POSIX result, a Docker overlay result,
 or a root-account result as a substitute. Do not persist the temporary test
@@ -117,12 +114,12 @@ session. The fixture ledger demonstrates process and crash refusal behavior
 only on the declared temporary ext4 tuple; it is not a production durable
 replay store, does not provide tamper evidence, and cannot establish a real
 session-ending or unique-boot lifecycle. A qualified Linux pass would narrow
-the Issue #80 qualification gap but would still require a fresh independent security review
+the Issue #84 qualification gap but would still require a fresh independent security review
 before any control-plane, replay-store, MCP, or writer integration.
 
 ## Gate Decision
 
 **NO-GO for integration.** Keep all control-plane behavior disconnected and
 default-off. The next action is to run the declared tuple in a dedicated Linux
-worktree, attach exact output and platform facts to Issue #80, then request an
+worktree, attach exact output and platform facts to Issue #84, then request an
 independent security review of the resulting evidence and residual risks.

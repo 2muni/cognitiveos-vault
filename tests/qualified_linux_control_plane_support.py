@@ -180,7 +180,10 @@ def _file_flags() -> int:
 
 
 def _same_named_entry(directory_fd: int, name: str, descriptor_fd: int, *, directory: bool) -> None:
-    named = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    try:
+        named = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    except OSError as error:
+        raise QualifiedLinuxFixtureRefusal("descriptor path identity changed") from error
     opened = os.fstat(descriptor_fd)
     if named.st_dev != opened.st_dev or named.st_ino != opened.st_ino:
         raise QualifiedLinuxFixtureRefusal("descriptor path identity changed")
@@ -189,6 +192,30 @@ def _same_named_entry(directory_fd: int, name: str, descriptor_fd: int, *, direc
         raise QualifiedLinuxFixtureRefusal("descriptor is not the required regular type")
     if not directory and opened.st_nlink != 1:
         raise QualifiedLinuxFixtureRefusal("target descriptor has an aliasing hard link")
+
+
+def _open_target_component_nofollow(
+    directory_fd: int,
+    component: str,
+    flags: int,
+    *,
+    directory: bool,
+) -> int:
+    """Open one fixture target component without leaking no-follow errors."""
+
+    try:
+        named = os.stat(component, dir_fd=directory_fd, follow_symlinks=False)
+    except OSError as error:
+        raise QualifiedLinuxFixtureRefusal("target path component is unavailable") from error
+    if stat.S_ISLNK(named.st_mode):
+        raise QualifiedLinuxFixtureRefusal("target path component is a symlink alias")
+    expected = stat.S_ISDIR if directory else stat.S_ISREG
+    if not expected(named.st_mode):
+        raise QualifiedLinuxFixtureRefusal("target path component has the wrong type")
+    try:
+        return os.open(component, flags, dir_fd=directory_fd)
+    except OSError as error:
+        raise QualifiedLinuxFixtureRefusal("target path descriptor is unavailable") from error
 
 
 def _open_absolute_directory_nofollow(path: Path) -> int:
@@ -237,7 +264,12 @@ class DisposableLinuxDescriptorProbe:
         root_fd = _open_absolute_directory_nofollow(self._root_path)
         try:
             root_identity = _identity_from_stat(os.fstat(root_fd))
-            notes_fd = os.open("Notes", _directory_flags(), dir_fd=root_fd)
+            notes_fd = _open_target_component_nofollow(
+                root_fd,
+                "Notes",
+                _directory_flags(),
+                directory=True,
+            )
             try:
                 _same_named_entry(root_fd, "Notes", notes_fd, directory=True)
                 notes_identity = _identity_from_stat(os.fstat(notes_fd))
@@ -281,7 +313,12 @@ class DisposableLinuxDescriptorProbe:
             for index, component in enumerate(target_components):
                 is_directory = index < len(target_components) - 1
                 flags = _directory_flags() if is_directory else _file_flags()
-                next_fd = os.open(component, flags, dir_fd=current_fd)
+                next_fd = _open_target_component_nofollow(
+                    current_fd,
+                    component,
+                    flags,
+                    directory=is_directory,
+                )
                 try:
                     if index == 0 and after_open_component is not None:
                         after_open_component()
@@ -357,8 +394,6 @@ class DisposableOwnerOnlyReplayLedger(DurableReplayLedger):
         lock_fd: int | None = None
         try:
             directory_fd = self._open_owner_directory()
-            if self._has_abandoned_temporary(directory_fd):
-                return ReplayClaimResult.UNAVAILABLE
             lock_fd = self._open_locked_file(directory_fd)
             import fcntl
 
@@ -366,6 +401,8 @@ class DisposableOwnerOnlyReplayLedger(DurableReplayLedger):
             if self._after_lock_acquired is not None:
                 self._after_lock_acquired()
             if not _same_path_entry(directory_fd, self._lock_name, lock_fd):
+                return ReplayClaimResult.UNAVAILABLE
+            if self._has_abandoned_temporary(directory_fd):
                 return ReplayClaimResult.UNAVAILABLE
             claims = self._read_claims(directory_fd)
             previous = claims.get(claim.capability_id)

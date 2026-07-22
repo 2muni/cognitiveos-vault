@@ -97,25 +97,22 @@ class QualifiedLinuxControlPlaneEvidenceTests(unittest.TestCase):
                 RootDecisionReason.ROOT_IDENTITY_MISMATCH,
             )
 
-    def test_target_evidence_reobserves_the_opened_root_descriptor_identity(self) -> None:
+    def test_root_replacement_with_moved_notes_refuses_the_original_root_provenance(self) -> None:
         with self._temporary_root() as temporary:
             root, namespace_id = self._prepare_descriptor_fixture(temporary)
             probe = DisposableLinuxDescriptorProbe(root, namespace_id=namespace_id)
             provenance = probe.bootstrap_provenance()
-            substituted_provenance = replace(
-                provenance,
-                root_identity=LinuxObjectIdentity(
-                    device=provenance.root_identity.device,
-                    inode=provenance.root_identity.inode + 1,
-                ),
-            )
+            original_root = root.with_name("vault-before-replacement")
+            root.rename(original_root)
+            root.mkdir(mode=0o700)
+            (original_root / "Notes").rename(root / "Notes")
 
-            evidence = probe.build_target_evidence(substituted_provenance, ("Notes", "review.md"))
+            evidence = probe.build_target_evidence(provenance, ("Notes", "review.md"))
 
-            self.assertEqual(evidence.root_identity, provenance.root_identity)
-            self.assertNotEqual(evidence.root_identity, substituted_provenance.root_identity)
+            self.assertNotEqual(evidence.root_identity, provenance.root_identity)
+            self.assertEqual(evidence.allowed_root_identity, provenance.allowed_roots[0].identity)
             self.assertEqual(
-                qualify_root_containment(substituted_provenance, evidence).reason,
+                qualify_root_containment(provenance, evidence).reason,
                 RootDecisionReason.ROOT_IDENTITY_MISMATCH,
             )
 
@@ -132,8 +129,12 @@ class QualifiedLinuxControlPlaneEvidenceTests(unittest.TestCase):
             provenance = probe.bootstrap_provenance()
             leaf_alias = root / "Notes" / "alias.md"
             leaf_alias.symlink_to(root / "Notes" / "review.md")
-            with self.assertRaises(QualifiedLinuxFixtureRefusal):
+            with self.assertRaisesRegex(QualifiedLinuxFixtureRefusal, "target path component is a symlink alias"):
                 probe.build_target_evidence(provenance, ("Notes", "alias.md"))
+            ancestor_alias = root / "Notes" / "alias-directory"
+            ancestor_alias.symlink_to(root / "Notes", target_is_directory=True)
+            with self.assertRaisesRegex(QualifiedLinuxFixtureRefusal, "target path component is a symlink alias"):
+                probe.build_target_evidence(provenance, ("Notes", "alias-directory", "review.md"))
             hard_alias = root / "Notes" / "hard-alias.md"
             os.link(root / "Notes" / "review.md", hard_alias)
             with self.assertRaises(QualifiedLinuxFixtureRefusal):

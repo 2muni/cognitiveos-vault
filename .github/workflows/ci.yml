@@ -22,7 +22,6 @@ jobs:
       fail-fast: false
       matrix:
         python-version:
-          - "3.11"
           - "3.14"
     steps:
       - uses: actions/checkout@v6
@@ -59,7 +58,6 @@ jobs:
     timeout-minutes: 15
     env:
       PYTHON_BIN: python
-      QUALIFIED_LINUX_EVIDENCE_DIR: qualified-linux-evidence
     steps:
       - uses: actions/checkout@v6
         with:
@@ -71,6 +69,8 @@ jobs:
           cache: pip
       - run: python -m pip install '.[dev,mcp]'
       - run: bash scripts/run-qualified-linux-evidence.sh
+        env:
+          QUALIFIED_LINUX_EVIDENCE_DIR: ${{ runner.temp }}/qualified-linux-evidence
       - uses: actions/upload-artifact@v7
         if: always()
         with:

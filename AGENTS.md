@@ -33,19 +33,23 @@ codex --model gpt-5.6-terra -c model_reasoning_effort="low"
 codex --model gpt-5.6-terra -c model_reasoning_effort="high"
 ```
 
-For Orca worktrees, prefer the repository launcher so an omitted or invalid
-model/effort cannot silently fall back to the client default:
+For Orca worktrees that require the GitHub-authenticated security launcher,
+execute the repository launcher directly so a caller-selected `bash` cannot
+run startup hooks before the gate. This security control accepts only the
+reviewed `gpt-5.6-terra / high` combination:
 
 ```text
-bash scripts/run-orca-codex.sh gpt-5.6-terra low
-bash scripts/run-orca-codex.sh gpt-5.6-terra high
+scripts/run-orca-codex.sh gpt-5.6-terra high
 ```
 
-The launcher requires both values, validates them against the supported IDs
-and effort values above, and should be passed to
+The launcher requires both values, fails closed for every other model or
+effort, and should be passed to
 `orca terminal create --command`. After launch, verify the terminal header
 shows the same model and effort before sending the task brief. Never use a
-bare `codex` or `orca worktree create --agent codex` for a tier-sensitive task.
+bare `codex`, a bare `bash` launcher invocation, or `orca worktree create
+--agent codex` for a tier-sensitive task. The task-tier mapping below remains
+the cost-selection guidance for controls that do not require this security
+launcher.
 
 Task tier mapping:
 
@@ -89,11 +93,17 @@ clean integration baseline, not a general development workspace.
 - A valid model header is not evidence that a task has started. After the
   model/effort check, also verify that the agent has progressed past MCP
   initialization and produced a repository inspection or progress event.
-- Treat GitHub authentication as a worktree creation preflight. The setup hook
-  must verify `gh auth status --hostname github.com` and run `gh auth setup-git`
-  before an agent receives its task brief. Credentials remain host-level and
-  must never be copied into a worktree. If authentication is unavailable, stop
-  setup and require `gh auth login --hostname github.com` before resuming.
+- Treat GitHub authentication as two required host-level gates before prompt
+  submission. The setup hook must verify `gh auth status --hostname github.com`
+  and run `gh auth setup-git`; immediately before `exec codex`,
+  `scripts/run-orca-codex.sh` must run
+  `scripts/verify-github-agent-auth.sh`. The agent-runtime gate repeats those
+  checks, verifies `git ls-remote origin HEAD`, and makes a read-only GitHub API
+  request. Credentials remain host-level and must never be copied into a
+  worktree or written to credential files. The runtime gate resolves `gh` and
+  `git` from fixed host-managed locations; do not use executable overrides or a
+  worktree-controlled `PATH` to test or run it. If either gate fails, stop and
+  require `gh auth login --hostname github.com` before resuming.
 
 ## Vault Safety
 

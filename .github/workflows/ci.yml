@@ -3,6 +3,11 @@ name: CI
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      expected_pr_head_sha:
+        description: Exact 40-character SHA of the PR head to qualify.
+        required: true
+        type: string
   push:
     branches:
       - main
@@ -58,6 +63,9 @@ jobs:
     timeout-minutes: 15
     env:
       PYTHON_BIN: python
+      # pull_request supplies the PR head. A manually dispatched direct run
+      # must supply the same immutable PR-head SHA explicitly.
+      EXPECTED_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.expected_pr_head_sha }}
     steps:
       - uses: actions/checkout@v6
         with:

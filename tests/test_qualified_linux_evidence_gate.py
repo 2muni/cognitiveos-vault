@@ -26,6 +26,11 @@ class QualifiedLinuxEvidenceGateTests(unittest.TestCase):
         self.assertIn("bash scripts/run-qualified-linux-evidence.sh", workflow)
         self.assertIn("name: qualified-linux-evidence", workflow)
         self.assertIn("if: always()", workflow)
+        self.assertIn("expected_pr_head_sha:\n", workflow)
+        self.assertIn(
+            "EXPECTED_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.expected_pr_head_sha }}",
+            workflow,
+        )
 
     def test_gate_records_required_evidence_and_uses_the_focused_suite(self) -> None:
         script = GATE_SCRIPT.read_text(encoding="utf-8")
@@ -36,6 +41,11 @@ class QualifiedLinuxEvidenceGateTests(unittest.TestCase):
         self.assertIn("status=FAILED", script)
         self.assertIn("qualified_suite_did_not_run_tests", script)
         self.assertIn("commit_sha=", script)
+        self.assertIn("expected_pr_head_sha=", script)
+        self.assertIn("github_sha=", script)
+        self.assertIn("checked_out_commit_sha=", script)
+        self.assertIn("expected_pr_head_sha_does_not_match_github_sha", script)
+        self.assertIn("github_sha_does_not_match_checked_out_commit_sha", script)
         self.assertIn("uname=", script)
         self.assertIn("uid=", script)
         self.assertIn("python_version=", script)
@@ -56,6 +66,9 @@ class QualifiedLinuxEvidenceGateTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             evidence_dir = Path(temporary) / "evidence"
+            head_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+            ).strip()
             completed = subprocess.run(
                 ["bash", os.fspath(GATE_SCRIPT)],
                 cwd=ROOT,
@@ -63,9 +76,8 @@ class QualifiedLinuxEvidenceGateTests(unittest.TestCase):
                     **os.environ,
                     "PYTHON_BIN": sys.executable,
                     "QUALIFIED_LINUX_EVIDENCE_DIR": os.fspath(evidence_dir),
-                    "GITHUB_SHA": subprocess.check_output(
-                        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-                    ).strip(),
+                    "EXPECTED_PR_HEAD_SHA": head_sha,
+                    "GITHUB_SHA": head_sha,
                 },
                 check=False,
                 capture_output=True,
@@ -77,7 +89,10 @@ class QualifiedLinuxEvidenceGateTests(unittest.TestCase):
             output = (evidence_dir / "qualified-linux-suite-output.txt").read_text(encoding="utf-8")
             self.assertIn("status=BLOCKED", evidence)
             self.assertIn("blocked_reason=", evidence)
-            self.assertIn("commit_sha=", evidence)
+            self.assertIn(f"commit_sha={head_sha}", evidence)
+            self.assertIn(f"expected_pr_head_sha={head_sha}", evidence)
+            self.assertIn(f"github_sha={head_sha}", evidence)
+            self.assertIn(f"checked_out_commit_sha={head_sha}", evidence)
             self.assertIn("uname=", evidence)
             self.assertIn("uid=", evidence)
             self.assertIn("python_version=", evidence)
@@ -86,6 +101,94 @@ class QualifiedLinuxEvidenceGateTests(unittest.TestCase):
             self.assertIn("exact_command=", evidence)
             self.assertIn("suite_output_begin", evidence)
             self.assertTrue(output.startswith("BLOCKED:"), output)
+
+    def test_expected_pr_head_mismatch_blocks_before_host_tuple(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence_dir = Path(temporary) / "evidence"
+            actual_head_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+            ).strip()
+            expected_head_sha = "0" * 40 if actual_head_sha != "0" * 40 else "f" * 40
+            completed = subprocess.run(
+                ["bash", os.fspath(GATE_SCRIPT)],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PYTHON_BIN": sys.executable,
+                    "QUALIFIED_LINUX_EVIDENCE_DIR": os.fspath(evidence_dir),
+                    "EXPECTED_PR_HEAD_SHA": expected_head_sha,
+                    "GITHUB_SHA": actual_head_sha,
+                },
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(completed.returncode, 2, completed.stdout + completed.stderr)
+            evidence = (evidence_dir / "qualified-linux-evidence.txt").read_text(encoding="utf-8")
+            output = (evidence_dir / "qualified-linux-suite-output.txt").read_text(encoding="utf-8")
+            self.assertIn(f"expected_pr_head_sha={expected_head_sha}", evidence)
+            self.assertIn(f"github_sha={actual_head_sha}", evidence)
+            self.assertIn("status=BLOCKED", evidence)
+            self.assertIn("blocked_reason=expected_pr_head_sha_does_not_match_github_sha", evidence)
+            self.assertEqual(
+                output,
+                "BLOCKED: expected_pr_head_sha_does_not_match_github_sha\n",
+            )
+
+    def test_mismatched_checkout_blocks_merge_ref_style_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / "merge-ref-checkout"
+            subprocess.run(
+                ["git", "clone", "--quiet", "--no-local", os.fspath(ROOT), os.fspath(checkout)],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["git", "checkout", "--quiet", "--detach", "HEAD~1"],
+                cwd=checkout,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            expected_head_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+            ).strip()
+            checked_out_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=checkout, text=True
+            ).strip()
+            self.assertNotEqual(expected_head_sha, checked_out_sha)
+
+            evidence_dir = Path(temporary) / "evidence"
+            completed = subprocess.run(
+                ["bash", os.fspath(GATE_SCRIPT)],
+                cwd=checkout,
+                env={
+                    **os.environ,
+                    "PYTHON_BIN": sys.executable,
+                    "QUALIFIED_LINUX_EVIDENCE_DIR": os.fspath(evidence_dir),
+                    "EXPECTED_PR_HEAD_SHA": expected_head_sha,
+                    "GITHUB_SHA": expected_head_sha,
+                },
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(completed.returncode, 2, completed.stdout + completed.stderr)
+            evidence = (evidence_dir / "qualified-linux-evidence.txt").read_text(encoding="utf-8")
+            output = (evidence_dir / "qualified-linux-suite-output.txt").read_text(encoding="utf-8")
+            self.assertIn(f"expected_pr_head_sha={expected_head_sha}", evidence)
+            self.assertIn(f"github_sha={expected_head_sha}", evidence)
+            self.assertIn(f"checked_out_commit_sha={checked_out_sha}", evidence)
+            self.assertIn("status=BLOCKED", evidence)
+            self.assertIn("blocked_reason=github_sha_does_not_match_checked_out_commit_sha", evidence)
+            self.assertEqual(
+                output,
+                "BLOCKED: github_sha_does_not_match_checked_out_commit_sha\n",
+            )
 
     @unittest.skipUnless(
         sys.platform == "linux" and Path("/proc/self/ns/mnt").exists(),
@@ -134,6 +237,9 @@ exit 0
                     "PATH": os.pathsep.join((os.fspath(shim_dir), os.environ["PATH"])),
                     "PYTHON_BIN": os.fspath(shim_dir / "python312"),
                     "QUALIFIED_LINUX_EVIDENCE_DIR": os.fspath(evidence_dir),
+                    "EXPECTED_PR_HEAD_SHA": subprocess.check_output(
+                        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+                    ).strip(),
                     "GITHUB_SHA": subprocess.check_output(
                         ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
                     ).strip(),

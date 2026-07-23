@@ -246,9 +246,12 @@ For each child worktree that will run a Codex agent:
    local `.venv` and install `.[dev,mcp]`. Do not use `--setup skip` for an
    MCP-backed implementation task.
 2. Verify `<worktree>/.venv/bin/python` exists and can import `cognitiveos`.
-3. Start `scripts/run-orca-codex.sh` with the exact account-compatible model
-   and effort. Its required agent-runtime GitHub preflight must pass before
-   `exec codex`; then verify the header.
+3. When the GitHub-authenticated security launcher is required, execute
+   `scripts/run-orca-codex.sh gpt-5.6-terra high` directly (never through a
+   bare `bash`). It accepts only that reviewed combination; its required
+   agent-runtime GitHub preflight must pass before `exec codex`. For other
+   controls, retain the documented task-tier selection; then verify the
+   header.
 4. Verify that the terminal progresses beyond MCP initialization and emits a
    repository inspection or progress event.
 5. Treat `ModuleNotFoundError`, fallback to system Python, MCP handshake
@@ -282,15 +285,17 @@ and make a read-only GitHub API request. On failure it exits nonzero before
 Codex starts and emits an actionable category plus safe context limited to
 hostname, account, and status; it must never print a token.
 
-The runtime gate starts its preflight through fixed `/bin/bash` and
-`/usr/bin/env` paths, so a worktree-controlled `PATH` cannot select the
-preflight interpreter. It clears only Bash startup and imported-function
-variables for that child process, preserving the host GitHub and Git credential
-environment. The gate resolves `gh` and `git` with PATH-only lookup from fixed
-host-managed locations, then verifies their physical paths remain under a
-trusted host root. It does not honor executable override environment variables
-or the worktree's `PATH`; tests use an in-process shell-function seam that the
-executed launcher cannot access.
+The security launcher uses fixed `/bin/bash -p` and `/usr/bin/env` paths, so a
+worktree-controlled `PATH`, Bash startup file, or imported function cannot
+select its outer shell or alter path resolution before preflight. It resolves
+its sibling preflight from the canonical launcher path, clears only Bash
+startup and imported-function variables for the preflight child process, and
+preserves the host GitHub and Git credential environment. The gate resolves
+`gh`, `git`, and Codex with PATH-only lookup from fixed host-managed locations,
+then verifies their physical paths remain under a trusted host root. It does
+not honor executable override environment variables or the worktree's `PATH`;
+tests use an in-process shell-function seam that the executed launcher cannot
+access.
 
 If either gate fails, stop and instruct the operator to run
 `gh auth login --hostname github.com` once on the host. Neither gate may copy

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -p
 set -euo pipefail
 
 # Verify the host-level GitHub state immediately before Codex starts. This is

@@ -199,8 +199,8 @@ class GitHubAgentAuthPreflightTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_launcher_uses_trusted_interpreter_before_preflight_and_never_reaches_codex(self) -> None:
-        """A PATH-provided bash could make the old env shebang bypass a failed gate."""
+    def test_launcher_direct_execution_ignores_path_bash_before_preflight(self) -> None:
+        """The executable launcher must not select a caller-provided outer Bash."""
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             scripts = root / "scripts"
@@ -227,7 +227,7 @@ class GitHubAgentAuthPreflightTests(unittest.TestCase):
             }
 
             result = subprocess.run(
-                ["/bin/bash", str(launcher), "gpt-5.6-terra", "high"],
+                [str(launcher), "gpt-5.6-terra", "high"],
                 cwd=REPO_ROOT,
                 env=environment,
                 text=True,
@@ -280,7 +280,7 @@ class GitHubAgentAuthPreflightTests(unittest.TestCase):
             }
 
             result = subprocess.run(
-                ["/bin/bash", str(launcher), "gpt-5.6-terra", "high"],
+                [str(launcher), "gpt-5.6-terra", "high"],
                 cwd=REPO_ROOT,
                 env=environment,
                 text=True,
@@ -289,6 +289,139 @@ class GitHubAgentAuthPreflightTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Codex was not started", result.stderr)
+
+    def test_launcher_ignores_bash_env_and_imported_functions_before_sibling_resolution(self) -> None:
+        """Startup hooks must not redirect a relative launcher to an attacker sibling."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            launcher = scripts / "run-orca-codex.sh"
+            shutil.copy2(LAUNCHER, launcher)
+            trusted_preflight_marker = root / "trusted-preflight-ran"
+            bash_env_marker = root / "bash-env-ran"
+            imported_function_marker = root / "imported-function-ran"
+            codex_marker = root / "codex-ran"
+            attacker = root / "attacker"
+            (attacker / "scripts").mkdir(parents=True)
+            (scripts / "verify-github-agent-auth.sh").write_text(
+                'printf trusted > "$TEST_TRUSTED_PREFLIGHT_MARKER"\nexit 17\n',
+                encoding="utf-8",
+            )
+            (scripts / "verify-github-agent-auth.sh").chmod(0o755)
+            (attacker / "scripts" / "verify-github-agent-auth.sh").write_text(
+                'printf attacker > "$TEST_ATTACKER_PREFLIGHT_MARKER"\nexit 0\n',
+                encoding="utf-8",
+            )
+            (attacker / "scripts" / "verify-github-agent-auth.sh").chmod(0o755)
+            bash_env = root / "bash-env"
+            bash_env.write_text(
+                textwrap.dedent(
+                    """\
+                    printf startup > "$TEST_BASH_ENV_MARKER"
+                    cd "$TEST_ATTACKER_DIR"
+                    PATH="$TEST_ATTACKER_DIR:$PATH"
+                    """
+                ),
+                encoding="utf-8",
+            )
+            self.make_command(root, "bash", 'printf bypass > "$TEST_PATH_BASH_MARKER"\nexit 0')
+            self.make_command(root, "codex", 'printf started > "$TEST_CODEX_MARKER"')
+            environment = os.environ | {
+                "PATH": f"{root}:{os.environ['PATH']}",
+                "BASH_ENV": str(bash_env),
+                "ENV": str(bash_env),
+                "BASH_FUNC_readlink%%": '() { printf imported > "$TEST_IMPORTED_FUNCTION_MARKER"; }',
+                "TEST_TRUSTED_PREFLIGHT_MARKER": str(trusted_preflight_marker),
+                "TEST_ATTACKER_PREFLIGHT_MARKER": str(root / "attacker-preflight-ran"),
+                "TEST_BASH_ENV_MARKER": str(bash_env_marker),
+                "TEST_IMPORTED_FUNCTION_MARKER": str(imported_function_marker),
+                "TEST_PATH_BASH_MARKER": str(root / "path-bash-ran"),
+                "TEST_CODEX_MARKER": str(codex_marker),
+                "TEST_ATTACKER_DIR": str(attacker),
+            }
+
+            result = subprocess.run(
+                [str(launcher), "gpt-5.6-terra", "high"],
+                cwd=REPO_ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Codex was not started", result.stderr)
+            self.assertTrue(trusted_preflight_marker.exists(), result.stdout + result.stderr)
+            self.assertFalse(bash_env_marker.exists(), result.stdout + result.stderr)
+            self.assertFalse(imported_function_marker.exists(), result.stdout + result.stderr)
+            self.assertFalse((root / "attacker-preflight-ran").exists(), result.stdout + result.stderr)
+            self.assertFalse((root / "path-bash-ran").exists(), result.stdout + result.stderr)
+            self.assertFalse(codex_marker.exists(), result.stdout + result.stderr)
+
+    def test_launcher_rejects_low_effort_without_running_preflight_or_codex(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            launcher = scripts / "run-orca-codex.sh"
+            shutil.copy2(LAUNCHER, launcher)
+            preflight_marker = root / "preflight-ran"
+            codex_marker = root / "codex-ran"
+            (scripts / "verify-github-agent-auth.sh").write_text(
+                'printf preflight > "$TEST_PREFLIGHT_MARKER"\nexit 0\n',
+                encoding="utf-8",
+            )
+            (scripts / "verify-github-agent-auth.sh").chmod(0o755)
+            self.make_command(root, "codex", 'printf started > "$TEST_CODEX_MARKER"')
+
+            result = subprocess.run(
+                [str(launcher), "gpt-5.6-terra", "low"],
+                cwd=REPO_ROOT,
+                env=os.environ | {
+                    "PATH": f"{root}:{os.environ['PATH']}",
+                    "TEST_PREFLIGHT_MARKER": str(preflight_marker),
+                    "TEST_CODEX_MARKER": str(codex_marker),
+                },
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+            self.assertIn("requires reasoning effort high", result.stderr)
+            self.assertFalse(preflight_marker.exists(), result.stdout + result.stderr)
+            self.assertFalse(codex_marker.exists(), result.stdout + result.stderr)
+
+    def test_launcher_rejects_path_codex_after_successful_preflight(self) -> None:
+        """Codex must satisfy the same host-path policy as gh and git."""
+        trusted_host_path = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        if shutil.which("codex", path=trusted_host_path) is not None:
+            self.skipTest("a real trusted-host Codex must not be invoked by this adversarial test")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            launcher = scripts / "run-orca-codex.sh"
+            shutil.copy2(LAUNCHER, launcher)
+            codex_marker = root / "codex-ran"
+            (scripts / "verify-github-agent-auth.sh").write_text("exit 0\n", encoding="utf-8")
+            (scripts / "verify-github-agent-auth.sh").chmod(0o755)
+            self.make_command(root, "codex", 'printf started > "$TEST_CODEX_MARKER"')
+
+            result = subprocess.run(
+                [str(launcher), "gpt-5.6-terra", "high"],
+                cwd=REPO_ROOT,
+                env=os.environ | {
+                    "PATH": f"{root}:{os.environ['PATH']}",
+                    "TEST_CODEX_MARKER": str(codex_marker),
+                },
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("trusted host Codex executable is unavailable", result.stderr)
+            self.assertFalse(codex_marker.exists(), result.stdout + result.stderr)
 
     def test_launcher_never_executes_codex_for_any_preflight_failure(self) -> None:
         scenarios = {
@@ -350,7 +483,7 @@ class GitHubAgentAuthPreflightTests(unittest.TestCase):
                 }
 
                 result = subprocess.run(
-                    ["/bin/bash", str(scripts / "run-orca-codex.sh"), "gpt-5.6-terra", "high"],
+                    [str(scripts / "run-orca-codex.sh"), "gpt-5.6-terra", "high"],
                     cwd=REPO_ROOT,
                     env=environment,
                     text=True,

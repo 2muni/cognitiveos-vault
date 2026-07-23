@@ -96,7 +96,9 @@ clean integration baseline, not a general development workspace.
   `scripts/verify-github-agent-auth.sh`. The agent-runtime gate repeats those
   checks, verifies `git ls-remote origin HEAD`, and makes a read-only GitHub API
   request. Credentials remain host-level and must never be copied into a
-  worktree or written to credential files. If either gate fails, stop and
+  worktree or written to credential files. The runtime gate resolves `gh` and
+  `git` from fixed host-managed locations; do not use executable overrides or a
+  worktree-controlled `PATH` to test or run it. If either gate fails, stop and
   require `gh auth login --hostname github.com` before resuming.
 
 ## Vault Safety

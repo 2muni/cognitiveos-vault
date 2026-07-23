@@ -89,11 +89,15 @@ clean integration baseline, not a general development workspace.
 - A valid model header is not evidence that a task has started. After the
   model/effort check, also verify that the agent has progressed past MCP
   initialization and produced a repository inspection or progress event.
-- Treat GitHub authentication as a worktree creation preflight. The setup hook
-  must verify `gh auth status --hostname github.com` and run `gh auth setup-git`
-  before an agent receives its task brief. Credentials remain host-level and
-  must never be copied into a worktree. If authentication is unavailable, stop
-  setup and require `gh auth login --hostname github.com` before resuming.
+- Treat GitHub authentication as two required host-level gates before prompt
+  submission. The setup hook must verify `gh auth status --hostname github.com`
+  and run `gh auth setup-git`; immediately before `exec codex`,
+  `scripts/run-orca-codex.sh` must run
+  `scripts/verify-github-agent-auth.sh`. The agent-runtime gate repeats those
+  checks, verifies `git ls-remote origin HEAD`, and makes a read-only GitHub API
+  request. Credentials remain host-level and must never be copied into a
+  worktree or written to credential files. If either gate fails, stop and
+  require `gh auth login --hostname github.com` before resuming.
 
 ## Vault Safety
 

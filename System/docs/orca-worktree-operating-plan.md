@@ -184,7 +184,9 @@ Task names should describe the outcome, not the agent or session. Examples:
    implementation task until its environment is installed and import-verified.
 6. Require the setup hook to verify host-level GitHub authentication with
    `gh auth status --hostname github.com` and initialize the Git credential
-   helper with `gh auth setup-git`. Do not copy tokens into the worktree.
+   helper with `gh auth setup-git`. Then require the agent-runtime preflight
+   invoked by `scripts/run-orca-codex.sh` to pass before the terminal can
+   accept the task prompt. Do not copy tokens into the worktree.
 7. Put the objective, scope, excluded work, completion gates, and model tier in
    the worktree task description before implementation.
 8. Inspect the current contracts and tests before editing.
@@ -245,7 +247,8 @@ For each child worktree that will run a Codex agent:
    MCP-backed implementation task.
 2. Verify `<worktree>/.venv/bin/python` exists and can import `cognitiveos`.
 3. Start `scripts/run-orca-codex.sh` with the exact account-compatible model
-   and effort, then verify the header.
+   and effort. Its required agent-runtime GitHub preflight must pass before
+   `exec codex`; then verify the header.
 4. Verify that the terminal progresses beyond MCP initialization and emits a
    repository inspection or progress event.
 5. Treat `ModuleNotFoundError`, fallback to system Python, MCP handshake
@@ -261,20 +264,29 @@ workspace comment and resume only after the preflight passes.
 
 ### GitHub authentication preflight
 
-GitHub authentication is host-level state, not worktree state. Every setup hook
-run must perform these checks before the agent task is submitted:
+GitHub authentication is host-level state, not worktree state. Both gates below
+must pass before a task prompt is submitted; setup success alone is not enough
+because credentials or remote access can change before the terminal starts.
+
+The setup hook verifies the initial host state:
 
 ```text
 gh auth status --hostname github.com
 gh auth setup-git
 ```
 
-If `gh auth status` fails, setup must stop and instruct the operator to run
-`gh auth login --hostname github.com` once on the host. The hook must not copy
-tokens, create credential files inside the worktree, or silently continue into
-implementation. This prevents a sub-workspace from discovering expired or
-missing GitHub authorization only when it attempts to push, create a PR, or
-post a review report.
+Immediately before `exec codex`, `scripts/run-orca-codex.sh` runs
+`scripts/verify-github-agent-auth.sh`. The agent-runtime gate must repeat the
+authentication and credential-helper checks, verify `git ls-remote origin HEAD`,
+and make a read-only GitHub API request. On failure it exits nonzero before
+Codex starts and emits an actionable category plus safe context limited to
+hostname, account, and status; it must never print a token.
+
+If either gate fails, stop and instruct the operator to run
+`gh auth login --hostname github.com` once on the host. Neither gate may copy
+tokens or create credential files inside the worktree. This prevents a
+sub-workspace from discovering expired or missing GitHub authorization only
+when it attempts to push, create a PR, or post a review report.
 
 ## Required Task Brief
 

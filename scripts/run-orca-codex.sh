@@ -32,6 +32,12 @@ case "$reasoning_effort" in
     ;;
 esac
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! "$script_dir/verify-github-agent-auth.sh"; then
+  echo "Codex was not started: agent-runtime GitHub authentication preflight failed." >&2
+  exit 1
+fi
+
 exec codex --model "$model_id" \
   -c "model_reasoning_effort=\"$reasoning_effort\"" \
   "$@"

@@ -143,6 +143,153 @@ class GitHubAgentAuthPreflightTests(unittest.TestCase):
             self.assertFalse(marker.exists(), result.stdout + result.stderr)
             self.assertNotIn("bypass", result.stdout + result.stderr)
 
+    def test_resolver_ignores_an_imported_git_shell_function(self) -> None:
+        marker_name = "TEST_IMPORTED_GIT_FUNCTION_RAN"
+        harness = f"""
+            source "$1"
+            git() {{ printf invoked > "${{{marker_name}}}"; }}
+            export -f git
+            resolved="$(resolve_host_binary git)"
+            [[ "$resolved" == /* && -x "$resolved" ]]
+        """
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            marker = Path(temp_dir) / "imported-git-function-ran"
+            result = subprocess.run(
+                ["/bin/bash", "-c", textwrap.dedent(harness), "preflight-test", str(PREFLIGHT)],
+                cwd=REPO_ROOT,
+                env=os.environ | {marker_name: str(marker)},
+                text=True,
+                capture_output=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(marker.exists(), result.stdout + result.stderr)
+
+    def test_resolver_rejects_host_path_symlink_outside_trusted_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            trusted_bin = root / "trusted" / "bin"
+            trusted_bin.mkdir(parents=True)
+            untrusted = self.make_command(root, "untrusted-git", "exit 0")
+            (trusted_bin / "git").symlink_to(untrusted)
+            harness = """
+                source "$1"
+                trusted_host_path="$2"
+                trusted_host_roots="$3"
+                if resolve_host_binary git; then
+                  exit 1
+                fi
+            """
+
+            result = subprocess.run(
+                [
+                    "/bin/bash",
+                    "-c",
+                    textwrap.dedent(harness),
+                    "preflight-test",
+                    str(PREFLIGHT),
+                    str(trusted_bin),
+                    str(root / "trusted"),
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                capture_output=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_launcher_uses_trusted_interpreter_before_preflight_and_never_reaches_codex(self) -> None:
+        """A PATH-provided bash could make the old env shebang bypass a failed gate."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            launcher = scripts / "run-orca-codex.sh"
+            shutil.copy2(LAUNCHER, launcher)
+            (scripts / "verify-github-agent-auth.sh").write_text(
+                "#!/usr/bin/env bash\nexit 17\n",
+                encoding="utf-8",
+            )
+            (scripts / "verify-github-agent-auth.sh").chmod(0o755)
+            preflight_interpreter_marker = root / "untrusted-bash-ran"
+            codex_marker = root / "codex-ran"
+            self.make_command(
+                root,
+                "bash",
+                'printf bypass > "$TEST_PREFLIGHT_INTERPRETER_MARKER"\nexit 0',
+            )
+            self.make_command(root, "codex", 'printf started > "$TEST_CODEX_MARKER"')
+            environment = os.environ | {
+                "PATH": f"{root}:{os.environ['PATH']}",
+                "TEST_PREFLIGHT_INTERPRETER_MARKER": str(preflight_interpreter_marker),
+                "TEST_CODEX_MARKER": str(codex_marker),
+            }
+
+            result = subprocess.run(
+                ["/bin/bash", str(launcher), "gpt-5.6-terra", "high"],
+                cwd=REPO_ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Codex was not started", result.stderr)
+            self.assertFalse(preflight_interpreter_marker.exists(), result.stdout + result.stderr)
+            self.assertFalse(codex_marker.exists(), result.stdout + result.stderr)
+
+    def test_launcher_clears_shell_startup_state_but_preserves_github_auth_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            launcher = scripts / "run-orca-codex.sh"
+            shutil.copy2(LAUNCHER, launcher)
+            (scripts / "verify-github-agent-auth.sh").write_text(
+                textwrap.dedent(
+                    """\
+                    #!/bin/bash
+                    [[ "${GH_CONFIG_DIR:-}" == "$TEST_GH_CONFIG_DIR" ]]
+                    [[ "${GH_TOKEN:-}" == "$TEST_GH_TOKEN" ]]
+                    [[ "${GITHUB_TOKEN:-}" == "$TEST_GITHUB_TOKEN" ]]
+                    [[ "${SSH_AUTH_SOCK:-}" == "$TEST_SSH_AUTH_SOCK" ]]
+                    [[ -z "${BASH_ENV+x}" ]]
+                    [[ -z "${ENV+x}" ]]
+                    ! declare -F gh >/dev/null
+                    exit 17
+                    """
+                ),
+                encoding="utf-8",
+            )
+            (scripts / "verify-github-agent-auth.sh").chmod(0o755)
+            bash_env = root / "bash-env"
+            bash_env.write_text(":\n", encoding="utf-8")
+            environment = os.environ | {
+                "BASH_ENV": str(bash_env),
+                "ENV": str(bash_env),
+                "BASH_FUNC_gh%%": "() { :; }",
+                "GH_CONFIG_DIR": str(root / "gh-config"),
+                "GH_TOKEN": "test-gh-token",
+                "GITHUB_TOKEN": "test-github-token",
+                "SSH_AUTH_SOCK": str(root / "ssh-agent.sock"),
+                "TEST_GH_CONFIG_DIR": str(root / "gh-config"),
+                "TEST_GH_TOKEN": "test-gh-token",
+                "TEST_GITHUB_TOKEN": "test-github-token",
+                "TEST_SSH_AUTH_SOCK": str(root / "ssh-agent.sock"),
+            }
+
+            result = subprocess.run(
+                ["/bin/bash", str(launcher), "gpt-5.6-terra", "high"],
+                cwd=REPO_ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Codex was not started", result.stderr)
+
     def test_launcher_never_executes_codex_for_any_preflight_failure(self) -> None:
         scenarios = {
             "missing-gh": (None, self.healthy_git()),

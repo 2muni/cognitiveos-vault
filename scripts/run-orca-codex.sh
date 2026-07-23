@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
 # Require an explicit model and reasoning effort for every Orca worker.  This
@@ -32,8 +32,32 @@ case "$reasoning_effort" in
     ;;
 esac
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if ! "$script_dir/verify-github-agent-auth.sh"; then
+script_path="${BASH_SOURCE[0]}"
+script_dir="${script_path%/*}"
+if [[ "$script_dir" == "$script_path" ]]; then
+  script_dir="."
+fi
+script_dir="$(builtin cd -P -- "$script_dir" && builtin pwd -P)"
+
+# The preflight must not inherit a caller-selected interpreter or Bash startup
+# hooks. Keep GitHub and Git credential environment variables intact; only
+# shell initialization and imported-function variables are removed.
+trusted_bash="/bin/bash"
+trusted_env="/usr/bin/env"
+if [[ ! -x "$trusted_bash" || ! -x "$trusted_env" ]]; then
+  echo "Codex was not started: trusted host shell utilities are unavailable." >&2
+  exit 1
+fi
+
+preflight_environment=("$trusted_env" -u BASH_ENV -u ENV)
+while IFS='=' read -r environment_name _; do
+  case "$environment_name" in
+    BASH_FUNC_*%%) preflight_environment+=(-u "$environment_name") ;;
+  esac
+done < <("$trusted_env")
+
+if ! "${preflight_environment[@]}" "$trusted_bash" --noprofile --norc \
+  "$script_dir/verify-github-agent-auth.sh"; then
   echo "Codex was not started: agent-runtime GitHub authentication preflight failed." >&2
   exit 1
 fi

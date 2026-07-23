@@ -282,9 +282,14 @@ and make a read-only GitHub API request. On failure it exits nonzero before
 Codex starts and emits an actionable category plus safe context limited to
 hostname, account, and status; it must never print a token.
 
-The runtime gate resolves `gh` and `git` only from fixed host-managed binary
-locations. It does not honor executable override environment variables or the
-worktree's `PATH`; tests use an in-process shell-function seam that the
+The runtime gate starts its preflight through fixed `/bin/bash` and
+`/usr/bin/env` paths, so a worktree-controlled `PATH` cannot select the
+preflight interpreter. It clears only Bash startup and imported-function
+variables for that child process, preserving the host GitHub and Git credential
+environment. The gate resolves `gh` and `git` with PATH-only lookup from fixed
+host-managed locations, then verifies their physical paths remain under a
+trusted host root. It does not honor executable override environment variables
+or the worktree's `PATH`; tests use an in-process shell-function seam that the
 executed launcher cannot access.
 
 If either gate fails, stop and instruct the operator to run

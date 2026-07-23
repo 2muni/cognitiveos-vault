@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
 # Verify the host-level GitHub state immediately before Codex starts. This is
@@ -11,16 +11,74 @@ set -euo pipefail
 # successful no-op. Keep this list small and explicit so it remains portable
 # across the supported macOS, Linux, and Windows-on-WSL host layouts.
 trusted_host_path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+trusted_host_roots="/opt/homebrew:/usr/local:/usr/bin:/usr/sbin:/bin:/sbin"
 hostname="github.com"
+
+canonicalize_binary() {
+  local path="$1"
+  local link
+  local directory
+  local filename
+  local link_count=0
+
+  # `readlink -f` is not available on every supported macOS host. Resolve
+  # links explicitly with the fixed system readlink instead, including a hop
+  # limit so a malformed host link fails closed rather than looping forever.
+  while [[ -L "$path" ]]; do
+    if (( link_count >= 40 )); then
+      return 1
+    fi
+    ((link_count += 1))
+    link="$(/usr/bin/readlink "$path")" || return 1
+    if [[ "$link" == /* ]]; then
+      path="$link"
+    else
+      directory="${path%/*}"
+      if [[ "$directory" == "$path" ]]; then
+        directory="."
+      fi
+      directory="$(builtin cd -P -- "$directory" && builtin pwd -P)" || return 1
+      path="$directory/$link"
+    fi
+  done
+
+  [[ -f "$path" && -x "$path" ]] || return 1
+  directory="${path%/*}"
+  filename="${path##*/}"
+  if [[ "$directory" == "$path" ]]; then
+    directory="."
+  fi
+  directory="$(builtin cd -P -- "$directory" && builtin pwd -P)" || return 1
+  printf '%s/%s\n' "$directory" "$filename"
+}
+
+is_trusted_host_binary() {
+  local binary="$1"
+  local root
+  local IFS=:
+
+  for root in $trusted_host_roots; do
+    if [[ "$binary" == "$root/"* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
 
 resolve_host_binary() {
   local name="$1"
   local binary
 
-  binary="$(PATH="$trusted_host_path" command -v "$name" 2>/dev/null || true)"
-  if [[ "$binary" != /* || ! -x "$binary" ]]; then
+  # `type -P` performs only PATH lookup, unlike `command -v`, which reports an
+  # imported shell function before a host binary. Resolve the result physically
+  # and require it to remain under a host-managed root; a host-path symlink to a
+  # worktree or another caller-controlled location is not trusted.
+  binary="$(PATH="$trusted_host_path" builtin type -P -- "$name" 2>/dev/null || true)"
+  if [[ "$binary" != /* ]]; then
     return 1
   fi
+  binary="$(canonicalize_binary "$binary")" || return 1
+  is_trusted_host_binary "$binary" || return 1
   printf '%s\n' "$binary"
 }
 

@@ -26,6 +26,7 @@ Only a result with every value below may have `status=QUALIFIED`:
 | Account | Non-root effective UID |
 | Fixture filesystem | A disposable `mktemp` directory on a local `/dev/*` `ext4` mount |
 | Namespace | A readable `/proc/self/ns/mnt` mount namespace |
+| PR-head provenance | `EXPECTED_PR_HEAD_SHA`, `GITHUB_SHA`, and `git rev-parse HEAD` are the same exact commit SHA |
 | Test command | `PYTHONPATH=src <Python 3.12> -W error -m unittest discover -s tests -p 'test_qualified_linux_control_plane.py' -v` |
 
 The job runs on `ubuntu-24.04` with the setup-python `3.12` toolchain, but it
@@ -33,14 +34,29 @@ does not infer qualification from the runner label. The gate reads the actual
 kernel, architecture, UID, interpreter, mount namespace, and disposable
 directory mount before it executes the suite.
 
+The expected SHA is never inferred from the checkout. For a `pull_request`
+run, the workflow supplies the event's immutable `pull_request.head.sha`. For
+a direct `workflow_dispatch` run, the operator must supply the same explicit
+PR-head SHA through `expected_pr_head_sha` and dispatch the workflow at that
+commit. `GITHUB_SHA` and the checked-out `HEAD` must both equal that expected
+value before the suite may run.
+
+GitHub's normal pull-request execution uses a synthetic merge ref for
+`GITHUB_SHA`. That execution deliberately records `BLOCKED`, even if the host
+tuple and suite would otherwise pass: a merge-ref result is not PR-head
+evidence. A matching direct workflow execution remains eligible to produce
+evidence; missing or mismatched provenance is never repaired by falling back
+to the checkout SHA.
+
 ## Evidence Artifact
 
 Every execution uploads the `qualified-linux-evidence` artifact, even when a
 tuple guard or the suite fails. It contains:
 
-- `qualified-linux-evidence.txt`, recording the schema, commit SHA, checked-out
-  SHA, `uname -a`, UID, Python identity, filesystem and mount, mount namespace,
-  exact command, status, and the complete suite output; and
+- `qualified-linux-evidence.txt`, recording the schema, expected PR-head SHA,
+  `GITHUB_SHA`, checked-out SHA, `uname -a`, UID, Python identity, filesystem
+  and mount, mount namespace, exact command, status, and the complete suite
+  output; and
 - `qualified-linux-suite-output.txt`, the unaltered focused-suite output (or
   the explicit blocked/failure message when execution was not allowed).
 
@@ -63,6 +79,9 @@ macOS, a Linux kernel older than 6.1, non-`x86_64` machines, CPython versions
 other than 3.12, root accounts, unavailable mount namespaces, overlay/tmpfs/
 network mounts, and non-local filesystems remain `BLOCKED`. The workflow does
 not convert any of those states into a generic-test pass or a qualified claim.
+An unavailable expected SHA, a PR merge ref, or any mismatch among expected,
+`GITHUB_SHA`, and checked-out `HEAD` is also `BLOCKED`; the focused suite does
+not run in those cases.
 
 The focused suite remains diagnostic-only and default-off. This gate does not
 add an MCP tool, a writer, a policy source, vault discovery, credentials,

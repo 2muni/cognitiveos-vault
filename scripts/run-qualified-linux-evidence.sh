@@ -29,7 +29,8 @@ readonly suite_output_file="$evidence_dir/qualified-linux-suite-output.txt"
 : >"$suite_output_file"
 
 actual_commit_sha="$(git rev-parse HEAD 2>/dev/null || printf 'unavailable')"
-workflow_commit_sha="${GITHUB_SHA:-$actual_commit_sha}"
+expected_pr_head_sha="${EXPECTED_PR_HEAD_SHA:-}"
+github_sha="${GITHUB_SHA:-unavailable}"
 uname_all="$(uname -a 2>&1 || true)"
 uname_system="$(uname -s 2>&1 || true)"
 uname_release="$(uname -r 2>&1 || true)"
@@ -51,7 +52,9 @@ fi
 {
     printf 'schema=%s\n' "$QUALIFICATION_SCHEMA"
     printf 'recorded_at_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-    printf 'commit_sha=%s\n' "$workflow_commit_sha"
+    printf 'commit_sha=%s\n' "$github_sha"
+    printf 'expected_pr_head_sha=%s\n' "$expected_pr_head_sha"
+    printf 'github_sha=%s\n' "$github_sha"
     printf 'checked_out_commit_sha=%s\n' "$actual_commit_sha"
     printf 'uname=%s\n' "$uname_all"
     printf 'uid=%s\n' "$effective_uid"
@@ -92,12 +95,28 @@ failed() {
     exit 1
 }
 
-if [[ "$workflow_commit_sha" == "unavailable" || "$actual_commit_sha" == "unavailable" ]]; then
-    blocked "commit_sha_unavailable"
+if [[ -z "$expected_pr_head_sha" ]]; then
+    blocked "expected_pr_head_sha_unavailable"
 fi
 
-if [[ "$workflow_commit_sha" != "$actual_commit_sha" ]]; then
-    blocked "commit_sha_mismatch"
+if [[ "$github_sha" == "unavailable" ]]; then
+    blocked "github_sha_unavailable"
+fi
+
+if [[ "$actual_commit_sha" == "unavailable" ]]; then
+    blocked "checked_out_commit_sha_unavailable"
+fi
+
+if [[ "$expected_pr_head_sha" != "$github_sha" ]]; then
+    blocked "expected_pr_head_sha_does_not_match_github_sha"
+fi
+
+if [[ "$github_sha" != "$actual_commit_sha" ]]; then
+    blocked "github_sha_does_not_match_checked_out_commit_sha"
+fi
+
+if [[ "$expected_pr_head_sha" != "$actual_commit_sha" ]]; then
+    blocked "expected_pr_head_sha_does_not_match_checked_out_commit_sha"
 fi
 
 if [[ "$uname_system" != "Linux" ]]; then
